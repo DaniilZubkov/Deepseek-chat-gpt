@@ -219,7 +219,26 @@ async def update_keyboard(message: Message, user_id: int):
 
 
 
-
+async def create_response(model, prompt, text, client, model_host='', temperature=0.7, top_p=0.9, fp=0.2, presence_penalty=0.2):
+    completion = client.chat.completions.create(
+        extra_body={},
+        model=f"{model_host}{model}",
+        messages=[
+            {
+                "role": "system",
+                "content": prompt
+            },
+            {
+                "role": "user",
+                "content": text
+            }
+        ],
+        temperature=temperature,  # Контроль "креативности" (0–1)
+        top_p=top_p,  # Влияет на разнообразие ответов
+        frequency_penalty=fp,  # Уменьшает повторения
+        presence_penalty=presence_penalty,  # Поощряет новые темы
+        )
+    return completion
 
 
 
@@ -277,25 +296,7 @@ async def get_message(message: Message):
         if current_model == 'deepseek-r1':
             enable_message = await message.answer(f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***', parse_mode="MARKDOWN")
 
-            completion = client.chat.completions.create(
-                extra_body={},
-                model="deepseek/deepseek-r1",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": message.text
-                    }
-                ],
-                temperature=0.7,  # Контроль "креативности" (0–1)
-                top_p=0.9,  # Влияет на разнообразие ответов
-                frequency_penalty=0.2,  # Уменьшает повторения
-                presence_penalty=0.2,  # Поощряет новые темы
-            )
-
+            completion = await create_response(model='deepseek-r1', prompt=system_prompt, text=message.text, client=client, model_host='deepseek/')
             deepseek_answer = completion.choices[0].message.content
 
             print(deepseek_answer)
@@ -331,26 +332,9 @@ async def get_message(message: Message):
             enable_message = await message.answer(f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
                                  parse_mode="MARKDOWN")
 
-            completion = client.chat.completions.create(
-                extra_body={},
-                model="deepseek/deepseek-chat-v3-0324",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": message.text
-                    }
-                ],
-                temperature=0.7,  # Контроль "креативности" (0–1)
-                top_p=0.9,  # Влияет на разнообразие ответов
-                frequency_penalty=0.2,  # Уменьшает повторения
-                presence_penalty=0.2,  # Поощряет новые темы
-            )
-
+            completion = await create_response(model='deepseek-chat-v3-0324', text=message.text, prompt=system_prompt, model_host='deepseek/', client=client)
             deepseek_answer = completion.choices[0].message.content
+
 
             print(deepseek_answer)
             print(clean_markdown(deepseek_answer))
@@ -375,25 +359,8 @@ async def get_message(message: Message):
             enable_message = await message.answer(f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
                                  parse_mode="MARKDOWN")
 
-            completion = client.chat.completions.create(
-                extra_body={},
-                model="deepseek/deepseek-r1-distill-qwen-32b",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": message.text
-                    }
-                ],
-                temperature=0.7,  # Контроль "креативности" (0–1)
-                top_p=0.9,  # Влияет на разнообразие ответов
-                frequency_penalty=0.2,  # Уменьшает повторения
-                presence_penalty=0.2,  # Поощряет новые темы
-            )
 
+            completion = await create_response(model='deepseek-r1-distill-qwen-32b', text=message.text, prompt=system_prompt, model_host='deepseek/', client=client)
             deepseek_answer = completion.choices[0].message.content
 
             print(deepseek_answer)
@@ -422,27 +389,10 @@ async def get_message(message: Message):
                 f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
                 parse_mode="MARKDOWN")
 
-            completion = gpt_client.chat.completions.create(
-                extra_body={},
-                model="gpt-4-turbo",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": message.text
-                    }
-                ],
-                temperature=0.7,  # Контроль "креативности" (0–1)
-                top_p=0.9,  # Влияет на разнообразие ответов
-                frequency_penalty=0.2,  # Уменьшает повторения
-                presence_penalty=0.2,  # Поощряет новые темы
-            )
+            completion = await create_response(client=gpt_client, text=message.text, prompt=system_prompt, model="gpt-4-turbo")
 
             if not completion.choices:
-                await message.answer(f'❌ {model_title} ничего не вернул')
+                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
 
             gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
 
@@ -459,7 +409,33 @@ async def get_message(message: Message):
 
 
         if current_model == 'gpt4.1':
-            pass
+            enable_message = await message.answer(
+                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
+                parse_mode="MARKDOWN")
+
+            completion = await create_response(text=message.text, client=gpt_client, model='gpt-4.1', prompt=system_prompt)
+
+            if not completion.choices:
+                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+
+            gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+            await enable_message.delete()
+
+
+            if len([char for char in gpt_answer]) >= 4096:
+                while gpt_answer:
+                    await message.answer(gpt_answer[:4096], parse_mode='MARKDOWN')
+                    # удаление отправленной части текста
+                    gpt_answer = gpt_answer[4096:]
+            await message.answer(gpt_answer, parse_mode='MARKDOWN')
+
+
+
+
+
+
+
+
         if current_model == 'gpt4-o':
             pass
         if current_model == 'gpt4.1-mini':
