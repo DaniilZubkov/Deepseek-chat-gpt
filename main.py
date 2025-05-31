@@ -133,7 +133,7 @@ allowed_models = MappingProxyType({
    # CLAUDE family
    'Claude 3.7 Sonnet': {
        'code': 'claude3.7-sonnet',
-       'api-key': 'API KEY',
+       'api-key': '',
    },
    'Claude 3.7 Sonnet (thinking)': {
        'code': 'claude3.7-sonnet-thinking',
@@ -219,7 +219,7 @@ async def update_keyboard(message: Message, user_id: int):
 
 
 
-async def create_response(model, prompt, text, client, model_host='', temperature=0.7, top_p=0.9, fp=0.2, presence_penalty=0.2):
+async def create_response(model, prompt, text, client, model_host='', temperature=0.7, top_p=0.9, fp=0.2, presence_penalty=0.2, max_tokens=None):
     completion = client.chat.completions.create(
         extra_body={},
         model=f"{model_host}{model}",
@@ -237,6 +237,7 @@ async def create_response(model, prompt, text, client, model_host='', temperatur
         top_p=top_p,  # Влияет на разнообразие ответов
         frequency_penalty=fp,  # Уменьшает повторения
         presence_penalty=presence_penalty,  # Поощряет новые темы
+        max_tokens=max_tokens
         )
     return completion
 
@@ -389,13 +390,13 @@ async def get_message(message: Message):
                 f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
                 parse_mode="MARKDOWN")
 
-            completion = await create_response(client=gpt_client, text=message.text, prompt=system_prompt, model="gpt-4-turbo")
+            completion = await create_response(text=message.text, client=gpt_client, model='gpt-4-turbo',
+                                                   prompt=system_prompt)
 
             if not completion.choices:
                 await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
 
             gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-
             await enable_message.delete()
 
             if len([char for char in gpt_answer]) >= 4096:
@@ -403,8 +404,10 @@ async def get_message(message: Message):
                     await message.answer(gpt_answer[:4096], parse_mode='MARKDOWN')
                     # удаление отправленной части текста
                     gpt_answer = gpt_answer[4096:]
-
             await message.answer(gpt_answer, parse_mode='MARKDOWN')
+
+
+
 
 
 
@@ -437,17 +440,104 @@ async def get_message(message: Message):
 
 
         if current_model == 'gpt4-o':
-            pass
+            enable_message = await message.answer(
+                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
+                parse_mode="MARKDOWN")
+
+            completion = await create_response(model='gpt-4o-2024-11-20', prompt=system_prompt, client=gpt_client, text=message.text)
+
+
+            if not completion.choices:
+                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+
+            gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+            await enable_message.delete()
+
+            if len([char for char in gpt_answer]) >= 4096:
+                while gpt_answer:
+                    await message.answer(gpt_answer[:4096], parse_mode='MARKDOWN')
+                    # удаление отправленной части текста
+                    gpt_answer = gpt_answer[4096:]
+            await message.answer(gpt_answer, parse_mode='MARKDOWN')
+
+
+
+
         if current_model == 'gpt4.1-mini':
-            pass
+            enable_message = await message.answer(
+                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
+                parse_mode="MARKDOWN")
+
+            completion = await create_response(text=message.text, model='gpt-4.1-mini', prompt=system_prompt, client=gpt_client)
+
+            if not completion.choices:
+                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+
+            gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+            await enable_message.delete()
+
+            if len([char for char in gpt_answer]) >= 4096:
+                while gpt_answer:
+                    await message.answer(gpt_answer[:4096], parse_mode='MARKDOWN')
+                    # удаление отправленной части текста
+                    gpt_answer = gpt_answer[4096:]
+            await message.answer(gpt_answer, parse_mode='MARKDOWN')
+
+
+
+
+
+
         if current_model == 'gpt4-o-mini':
-            pass
+            enable_message = await message.answer(
+                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
+                parse_mode="MARKDOWN")
+
+            completion = await create_response(text=message.text, model='gpt-4o-mini', client=gpt_client, prompt=system_prompt)
+
+            if not completion.choices:
+                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+
+            gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+            await enable_message.delete()
+
+
+            if len([char for char in gpt_answer]) >= 4096:
+                while gpt_answer:
+                    await message.answer(gpt_answer[:4096], parse_mode='MARKDOWN')
+                    # удаление отправленной части текста
+                    gpt_answer = gpt_answer[4096:]
+            await message.answer(gpt_answer, parse_mode='MARKDOWN')
 
 
 
         # CLAUDE family
         if current_model == 'claude3.7-sonnet':
-            pass
+            enable_message = await message.answer(
+                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
+                parse_mode="MARKDOWN")
+
+            completion = await create_response(text=message.text, model='anthropic/claude-3.7-sonnet', client=client, prompt=system_prompt, max_tokens=2038)
+
+            if not completion.choices:
+                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+
+
+            gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+            await enable_message.delete()
+
+            if len([char for char in gpt_answer]) >= 4096:
+                while gpt_answer:
+                    await message.answer(gpt_answer[:4096], parse_mode='MARKDOWN')
+                    # удаление отправленной части текста
+                    gpt_answer = gpt_answer[4096:]
+            await message.answer(gpt_answer, parse_mode='MARKDOWN')
+
+
+
+
+
+
         if current_model == 'claude3.7-sonnet-thinking':
             pass
 
@@ -476,6 +566,7 @@ async def get_message(message: Message):
 
     except Exception as e:
         print(e)
+        await message.answer('❌ ***Произошла ошибка генерации ответа или модель не работает...***', parse_mode='MARKDOWN')
 
 
 

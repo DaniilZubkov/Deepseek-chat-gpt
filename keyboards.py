@@ -11,9 +11,3 @@ def main_keyboard():
         InlineKeyboardButton(text='🛠️ Канал прогера', url='https://t.me/+1A9f6ZFMJBgxMjRi'),
     )
     return builder.as_markup()
-
-
-# def model_keyboard():
-#     builder = InlineKeyboardBuilder()
-#     for allowed_models in range(1):
-#         builder.add(InlineKeyboardButton(text=))
