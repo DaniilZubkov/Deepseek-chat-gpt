@@ -314,16 +314,37 @@ async def get_message(message: Message):
 
         # DEEPSEEK R1 requests
         if current_model == 'deepseek-r1':
-            enable_message = await message.answer(f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***', parse_mode="MARKDOWN")
+            enable_message = await message.answer(
+                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***', parse_mode="MARKDOWN")
 
-            completion = await create_response(model='deepseek/deepseek-r1', prompt=system_prompt, text=message.text, client=client)
-            deepseek_answer = completion.choices[0].message.content
+            # ПОПЫТКА 1
+            try:
+                completion = await create_response(model='deepseek/deepseek-r1', prompt=system_prompt,
+                                                   text=message.text, client=client)
+                deepseek_answer = completion.choices[0].message.content
+                new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
 
-            print(deepseek_answer)
-            print(clean_markdown(deepseek_answer))
-            print(len(clean_output(clean_markdown(deepseek_answer))))
+                await enable_message.delete()
 
-            new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
+                if len([char for char in new_deepseek_answer]) >= 4096:
+                    while new_deepseek_answer:
+                        await message.answer(new_deepseek_answer[:4096], parse_mode='MARKDOWN')
+                        # удаление отправленной части текста
+                        new_deepseek_answer = new_deepseek_answer[4096:]
+
+                await message.answer(new_deepseek_answer, parse_mode='MARKDOWN')
+                print('deepseek 1')
+
+            # ПОПЫТКА 2
+            except Exception:
+                completion = await create_response(model=g4f.models.deepseek_r1, prompt=system_prompt, text=message.text, client=gpt_client)
+                deepseek_answer = completion.choices[0].message.content
+
+                print(deepseek_answer)
+                print(clean_markdown(deepseek_answer))
+                print(len(clean_output(clean_markdown(deepseek_answer))))
+
+                new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
 
             # if '`' in new_deepseek_answer[0:2] and '`' in new_deepseek_answer[-3:-1]:
             #     if len([char for char in new_deepseek_answer]) >= 4096:
@@ -332,16 +353,17 @@ async def get_message(message: Message):
             #             # удаление отправленной части текста
             #             new_deepseek_answer = new_deepseek_answer[4096:]
             #     await message.answer(new_deepseek_answer[2:-3], parse_mode='MARKDOWN')
+            #
+                await enable_message.delete()
 
-            await enable_message.delete()
+                if len([char for char in new_deepseek_answer]) >= 4096:
+                    while new_deepseek_answer:
+                        await message.answer(new_deepseek_answer[:4096], parse_mode='MARKDOWN')
+                        # удаление отправленной части текста
+                        new_deepseek_answer = new_deepseek_answer[4096:]
 
-            if len([char for char in new_deepseek_answer]) >= 4096:
-                while new_deepseek_answer:
-                    await message.answer(new_deepseek_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    new_deepseek_answer = new_deepseek_answer[4096:]
-
-            await message.answer(new_deepseek_answer, parse_mode='MARKDOWN')
+                await message.answer(new_deepseek_answer, parse_mode='MARKDOWN')
+                print('deepseek 2')
 
 
 
