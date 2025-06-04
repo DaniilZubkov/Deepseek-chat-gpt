@@ -76,11 +76,18 @@ system_prompt = """🤖✨ You are an expert multilingual AI assistant and devel
        * 📖 Confirm readability score >80%
 
  📤 Output template:
- 🚩 **<Language-detected response>**
+   ✨ **Title/Subject (if applicable)**
+   
    • 🎯 Key point 1
+   
    • 🔑 Key point 2
+   
    - 📍 Supporting detail
+   
    - 💡 Example/excerpt
+   
+   🌟 Additional tip (optional)
+   
  🌍 <cultural/localization note if relevant>
 
 
@@ -135,7 +142,7 @@ allowed_models = MappingProxyType({
    # CLAUDE family
    'Claude 3.7 Sonnet': {
        'code': 'claude3.7-sonnet',
-       'api-key': 'api',
+       'api-key': '',
    },
    'Claude 3.7 Sonnet (thinking)': {
        'code': 'claude3.7-sonnet-thinking',
@@ -647,15 +654,52 @@ async def get_message(message: Message):
             await message.answer(qwen_answer, parse_mode='MARKDOWN')
 
 
+
+
+
         if current_model == 'qwen3-30b-a3b':
-            pass
+            enable_message = await message.answer(
+                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
+                parse_mode="MARKDOWN")
+
+            completion = await create_response(text=message.text, client=client, model='qwen/qwen3-30b-a3b', prompt=system_prompt)
+
+            if not completion.choices:
+                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+
+            qwen_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+            await enable_message.delete()
+
+            if len([char for char in qwen_answer]) >= 4096:
+                while qwen_answer:
+                    await message.answer(qwen_answer[:4096], parse_mode='MARKDOWN')
+                    # удаление отправленной части текста
+                    qwen_answer = qwen_answer[4096:]
+            await message.answer(qwen_answer, parse_mode='MARKDOWN')
+
+
 
 
         # GEMINI FAMILY
         if current_model == 'gemini-2.0-flash-lite':
-            pass
+            enable_message = await message.answer(
+                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
+                parse_mode="MARKDOWN")
 
+            completion = await create_response(text=message.text, client=gpt_client, model=g4f.models.gemini_2_0_flash_thinking, prompt=system_prompt)
 
+            if not completion.choices:
+                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+
+            gemini_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+            await enable_message.delete()
+
+            if len([char for char in gemini_answer]) >= 4096:
+                while gemini_answer:
+                    await message.answer(gemini_answer[:4096], parse_mode='MARKDOWN')
+                    # удаление отправленной части текста
+                    gemini_answer = gemini_answer[4096:]
+            await message.answer(gemini_answer, parse_mode='MARKDOWN')
 
 
 
