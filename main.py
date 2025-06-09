@@ -1,4 +1,3 @@
-import g4f
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -13,6 +12,7 @@ import asyncio
 from openai import OpenAI
 from g4f.client import Client
 from g4f.Provider import You, DeepInfra
+import g4f
 import re
 from db import Database
 
@@ -96,9 +96,6 @@ system_prompt = """🤖✨ You are an expert multilingual AI assistant and devel
 
 
 
-
-
-
 allowed_models = MappingProxyType({
     # DEEPSEEK family
     'Deepseek-R1': {
@@ -178,7 +175,6 @@ allowed_models = MappingProxyType({
        'api-key': 'API KEY',
    },
 })
-
 
 
 
@@ -291,6 +287,15 @@ async def start(message: Message):
 
 @dp.message()
 async def get_message(message: Message):
+    async def send_long_message(text, message):
+        if len(text) <= 4096:
+            await message.answer(text, parse_mode='MARKDOWN')
+        else:
+            parts = [text[i:i+4096] for i in range(0, len(text), 4096)]
+            for part in parts:
+                await message.answer(part, parse_mode='MARKDOWN')
+
+
     try:
         current_model = db.get_model(message.from_user.id)
 
@@ -321,23 +326,24 @@ async def get_message(message: Message):
             try:
                 completion = await create_response(model='deepseek/deepseek-r1', prompt=system_prompt,
                                                    text=message.text, client=client)
+
+                if not completion.choices:
+                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+        
                 deepseek_answer = completion.choices[0].message.content
                 new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
 
                 await enable_message.delete()
-
-                if len([char for char in new_deepseek_answer]) >= 4096:
-                    while new_deepseek_answer:
-                        await message.answer(new_deepseek_answer[:4096], parse_mode='MARKDOWN')
-                        # удаление отправленной части текста
-                        new_deepseek_answer = new_deepseek_answer[4096:]
-
-                await message.answer(new_deepseek_answer, parse_mode='MARKDOWN')
+                await send_long_message(new_deepseek_answer, message)
                 print('deepseek 1')
 
             # ПОПЫТКА 2
             except Exception:
                 completion = await create_response(model=g4f.models.deepseek_r1, prompt=system_prompt, text=message.text, client=gpt_client)
+                
+                if not completion.choices:
+                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                
                 deepseek_answer = completion.choices[0].message.content
 
                 print(deepseek_answer)
@@ -355,14 +361,7 @@ async def get_message(message: Message):
             #     await message.answer(new_deepseek_answer[2:-3], parse_mode='MARKDOWN')
             #
                 await enable_message.delete()
-
-                if len([char for char in new_deepseek_answer]) >= 4096:
-                    while new_deepseek_answer:
-                        await message.answer(new_deepseek_answer[:4096], parse_mode='MARKDOWN')
-                        # удаление отправленной части текста
-                        new_deepseek_answer = new_deepseek_answer[4096:]
-
-                await message.answer(new_deepseek_answer, parse_mode='MARKDOWN')
+                await send_long_message(new_deepseek_answer, message)
                 print('deepseek 2')
 
 
@@ -373,27 +372,37 @@ async def get_message(message: Message):
         if current_model == 'deepseek-v3':
             enable_message = await message.answer(f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
                                  parse_mode="MARKDOWN")
+            try:
+                completion = await create_response(model=g4f.models.deepseek_v3, text=message.text, prompt=system_prompt, client=gpt_client)
 
-            completion = await create_response(model='deepseek/deepseek-chat-v3-0324', text=message.text, prompt=system_prompt, client=client)
-            deepseek_answer = completion.choices[0].message.content
+                if not completion.choices:
+                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+
+                deepseek_answer = completion.choices[0].message.content
+                new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
+                
+                await enable_message.delete()
+                await send_long_message(new_deepseek_answer, message)
 
 
-            print(deepseek_answer)
-            print(clean_markdown(deepseek_answer))
-            print(len(clean_output(clean_markdown(deepseek_answer))))
-
-            new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
+            except Exception as e: 
+                completion = await create_response(model='deepseek/deepseek-chat-v3-0324', text=message.text, prompt=system_prompt, client=client)
+                deepseek_answer = completion.choices[0].message.content
 
 
-            await enable_message.delete()
+                print(deepseek_answer)
+                print(clean_markdown(deepseek_answer))
+                print(len(clean_output(clean_markdown(deepseek_answer))))
+                new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
 
-            if len([char for char in new_deepseek_answer]) >= 4096:
-                while new_deepseek_answer:
-                    await message.answer(new_deepseek_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    new_deepseek_answer = new_deepseek_answer[4096:]
 
-            await message.answer(new_deepseek_answer, parse_mode='MARKDOWN')
+                await enable_message.delete()
+                await send_long_message(new_deepseek_answer, message)
+
+
+
+
+
 
 
         # DEEPSEK r1 (qwen)
@@ -401,25 +410,31 @@ async def get_message(message: Message):
             enable_message = await message.answer(f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
                                  parse_mode="MARKDOWN")
 
+            try:
+                completion = await create_response(model=g4f.models.deepseek_r1_distill_qwen_32b, text=message.text, prompt=system_prompt, client=gpt_client)
+                
+                if not completion.choices:
+                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
 
-            completion = await create_response(model='deepseek/deepseek-r1-distill-qwen-32b', text=message.text, prompt=system_prompt, client=client)
-            deepseek_answer = completion.choices[0].message.content
+                deepseek_answer = completion.choices[0].message.content
+                new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
 
-            print(deepseek_answer)
-            print(clean_markdown(deepseek_answer))
-            print(len(clean_output(clean_markdown(deepseek_answer))))
+                await enable_message.delete()
+                await send_long_message(new_deepseek_answer, message)
 
-            new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
+            except Exception:
+                completion = await create_response(model='deepseek/deepseek-r1-distill-qwen-32b', text=message.text, prompt=system_prompt, client=client)
 
-            await enable_message.delete()
+                if not completion.choices:
+                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+        
+                deepseek_answer = completion.choices[0].message.content
+                new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
 
-            if len([char for char in new_deepseek_answer]) >= 4096:
-                while new_deepseek_answer:
-                    await message.answer(new_deepseek_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    new_deepseek_answer = new_deepseek_answer[4096:]
+                await enable_message.delete()
+                await send_long_message(new_deepseek_answer, message)
 
-            await message.answer(new_deepseek_answer, parse_mode='MARKDOWN')
+
 
 
 
@@ -430,23 +445,16 @@ async def get_message(message: Message):
             enable_message = await message.answer(
                 f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
                 parse_mode="MARKDOWN")
-
-
-            completion = await create_response(text=message.text, client=gpt_client, model=g4f.models.gpt_4_turbo,
-                                                   prompt=system_prompt)
+            completion = await create_response(model=g4f.models.gpt_4_turbo, text=message.text, prompt=system_prompt, client=gpt_client)
 
             if not completion.choices:
                 await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+        
+            gpt_answer = completion.choices[0].message.content
+            new_gpt_answer = clean_output(clean_markdown(gpt_answer))
 
-            gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
             await enable_message.delete()
-
-            if len([char for char in gpt_answer]) >= 4096:
-                while gpt_answer:
-                    await message.answer(gpt_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    gpt_answer = gpt_answer[4096:]
-            await message.answer(gpt_answer, parse_mode='MARKDOWN')
+            await send_long_message(gpt_answer, message)
 
 
 
@@ -467,12 +475,8 @@ async def get_message(message: Message):
             await enable_message.delete()
 
 
-            if len([char for char in gpt_answer]) >= 4096:
-                while gpt_answer:
-                    await message.answer(gpt_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    gpt_answer = gpt_answer[4096:]
-            await message.answer(gpt_answer, parse_mode='MARKDOWN')
+            await send_long_message(gpt_answer, message)
+
 
 
 
@@ -495,12 +499,8 @@ async def get_message(message: Message):
             gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
             await enable_message.delete()
 
-            if len([char for char in gpt_answer]) >= 4096:
-                while gpt_answer:
-                    await message.answer(gpt_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    gpt_answer = gpt_answer[4096:]
-            await message.answer(gpt_answer, parse_mode='MARKDOWN')
+            await send_long_message(gpt_answer, message)
+
 
 
 
@@ -518,12 +518,8 @@ async def get_message(message: Message):
             gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
             await enable_message.delete()
 
-            if len([char for char in gpt_answer]) >= 4096:
-                while gpt_answer:
-                    await message.answer(gpt_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    gpt_answer = gpt_answer[4096:]
-            await message.answer(gpt_answer, parse_mode='MARKDOWN')
+            await send_long_message(gpt_answer, message)
+
 
 
 
@@ -543,13 +539,9 @@ async def get_message(message: Message):
             gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
             await enable_message.delete()
 
+            await send_long_message(gpt_answer, message)
 
-            if len([char for char in gpt_answer]) >= 4096:
-                while gpt_answer:
-                    await message.answer(gpt_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    gpt_answer = gpt_answer[4096:]
-            await message.answer(gpt_answer, parse_mode='MARKDOWN')
+
 
 
 
@@ -571,12 +563,8 @@ async def get_message(message: Message):
             claude_answer = clean_output(clean_markdown(completion.choices[0].message.content))
             await enable_message.delete()
 
-            if len([char for char in claude_answer]) >= 4096:
-                while claude_answer:
-                    await message.answer(claude_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    claude_answer = claude_answer[4096:]
-            await message.answer(claude_answer, parse_mode='MARKDOWN')
+            await send_long_message(claude_answer, message)
+
 
 
 
@@ -588,7 +576,7 @@ async def get_message(message: Message):
                 f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
                 parse_mode="MARKDOWN")
 
-            completion = await create_response(text=message.text, client=client, model='anthropic/claude-3.7-sonnet:thinking', prompt=system_prompt)
+            completion = await create_response(text=message.text, client=gpt_client, model=g4f.models.claude_3_7_sonnet_thinking, prompt=system_prompt)
 
             if not completion.choices:
                 await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
@@ -597,12 +585,8 @@ async def get_message(message: Message):
             claude_answer = clean_output(clean_markdown(completion.choices[0].message.content))
             await enable_message.delete()
 
-            if len([char for char in claude_answer]) >= 4096:
-                while claude_answer:
-                    await message.answer(claude_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    claude_answer = claude_answer[4096:]
-            await message.answer(claude_answer, parse_mode='MARKDOWN')
+            await send_long_message(claude_answer, message)
+
 
 
 
@@ -622,12 +606,8 @@ async def get_message(message: Message):
             oai_answer = clean_output(clean_markdown(completion.choices[0].message.content))
             await enable_message.delete()
 
-            if len([char for char in oai_answer]) >= 4096:
-                while oai_answer:
-                    await message.answer(oai_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    oai_answer = oai_answer[4096:]
-            await message.answer(oai_answer, parse_mode='MARKDOWN')
+            await send_long_message(oai_answer, message)
+
 
 
 
@@ -645,12 +625,8 @@ async def get_message(message: Message):
             oai_answer = clean_output(clean_markdown(completion.choices[0].message.content))
             await enable_message.delete()
 
-            if len([char for char in oai_answer]) >= 4096:
-                while oai_answer:
-                    await message.answer(oai_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    oai_answer = oai_answer[4096:]
-            await message.answer(oai_answer, parse_mode='MARKDOWN')
+            await send_long_message(oai_answer, message)
+
 
 
 
@@ -660,20 +636,29 @@ async def get_message(message: Message):
                 f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
                 parse_mode="MARKDOWN")
 
-            completion = await create_response(text=message.text, client=client, model='qwen/qwen3-235b-a22b', prompt=system_prompt)
+            try:
+                completion = await create_response(text=message.text, client=client, model='qwen/qwen3-235b-a22b', prompt=system_prompt)
 
-            if not completion.choices:
-                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                if not completion.choices:
+                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+        
+                qwen_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+                await enable_message.delete()
 
-            qwen_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-            await enable_message.delete()
+                await send_long_message(qwen_answer, message)
+                print('qwen 1')
+            
+            except Exception:
+                completion = await create_response(text=message.text, client=gpt_client, model='qwen-3-235b', prompt=system_prompt)
 
-            if len([char for char in qwen_answer]) >= 4096:
-                while qwen_answer:
-                    await message.answer(qwen_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    qwen_answer = qwen_answer[4096:]
-            await message.answer(qwen_answer, parse_mode='MARKDOWN')
+                if not completion.choices:
+                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+        
+                qwen_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+                await enable_message.delete()
+
+                await send_long_message(qwen_answer, message)
+
 
 
 
@@ -684,21 +669,27 @@ async def get_message(message: Message):
                 f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
                 parse_mode="MARKDOWN")
 
-            completion = await create_response(text=message.text, client=client, model='qwen/qwen3-30b-a3b', prompt=system_prompt)
+            try:
+                completion = await create_response(text=message.text, client=client, model='qwen/qwen3-30b-a3b', prompt=system_prompt)
 
-            if not completion.choices:
-                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                if not completion.choices:
+                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+        
+                qwen_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+                await enable_message.delete()
 
-            qwen_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-            await enable_message.delete()
+                await send_long_message(qwen_answer, message)
+            
+            except Exception:
+                completion = await create_response(text=message.text, client=gpt_client, model='qwen-3-30b', prompt=system_prompt)
 
-            if len([char for char in qwen_answer]) >= 4096:
-                while qwen_answer:
-                    await message.answer(qwen_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    qwen_answer = qwen_answer[4096:]
-            await message.answer(qwen_answer, parse_mode='MARKDOWN')
+                if not completion.choices:
+                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+        
+                qwen_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+                await enable_message.delete()
 
+                await send_long_message(qwen_answer, message)
 
 
 
@@ -715,13 +706,9 @@ async def get_message(message: Message):
 
             gemini_answer = clean_output(clean_markdown(completion.choices[0].message.content))
             await enable_message.delete()
+            
+            await send_long_message(gemini_answer, message)
 
-            if len([char for char in gemini_answer]) >= 4096:
-                while gemini_answer:
-                    await message.answer(gemini_answer[:4096], parse_mode='MARKDOWN')
-                    # удаление отправленной части текста
-                    gemini_answer = gemini_answer[4096:]
-            await message.answer(gemini_answer, parse_mode='MARKDOWN')
 
 
 
