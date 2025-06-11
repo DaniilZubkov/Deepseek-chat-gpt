@@ -1,3 +1,4 @@
+import os
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -15,10 +16,14 @@ from g4f.Provider import You, DeepInfra
 import g4f
 import re
 from db import Database
+from dotenv import load_dotenv
 
 
+load_dotenv()
+env = os.getenv
 
-bot = Bot('')
+
+bot = Bot(env("BOT_TOKEN"))
 dp = Dispatcher(storage=MemoryStorage())
 db = Database('database.db')
 
@@ -100,71 +105,71 @@ allowed_models = MappingProxyType({
     # DEEPSEEK family
     'Deepseek-R1': {
         'code': 'deepseek-r1',
-        'api-key': '',
+        'api-key': env("DEEPSEEK_API_R1"),
     },
     'Deepseek-V3': {
         'code': 'deepseek-v3',
-        'api-key': '',
+        'api-key': env("DEEPSEEK_API_V3"),
     },
     'Deepseek-R1 (QWEN)': {
         'code': 'deepseek-r1-qwen',
-        'api-key': '',
+        'api-key': env("DEEPSEEK_API_QWEN"),
     },
 
 
    # GPT family
    'GPT-4 Turbo': {
         'code': 'gpt4-turbo',
-        'api-key': 'api',
+        'api-key': env("GPT_4_TURBO_API"),
    },
    'GPT-4.1': {
         'code': 'gpt4.1',
-        'api-key': 'API KEY',
+        'api-key': env("GPT_4_1_API"),
    },
    'GPT-4o': {
        'code': 'gpt4-o',
-       'api-key': 'API KEY',
+       'api-key': env("GPT_4_O_API"),
    },
 
    # MINI GPT`s family
    'GPT-4.1 Mini': {
        'code': 'gpt4.1-mini',
-       'api-key': 'API KEY',
+       'api-key': env("GPT_4_1_MINI_API"), 
    },
    'GPT-4o Mini': {
        'code': 'gpt4-o-mini',
-       'api-key': 'API KEY',
+       'api-key': env("GPT_4_O_MINI_API"),
    },
 
    # CLAUDE family
    'Claude 3.7 Sonnet': {
        'code': 'claude3.7-sonnet',
-       'api-key': '',
+       'api-key': env("CLAUDE_37_API"),
    },
    'Claude 3.7 Sonnet (thinking)': {
        'code': 'claude3.7-sonnet-thinking',
-       'api-key': 'API KEY',
+       'api-key': env("CLAUDE_37_TH_API"),
    },
 
    # Open AI family
    'OpenAI o3': {
        'code': 'open-ai-o3',
-       'api-key': 'API KEY',
+       'api-key': env("OAI_O3"),
    },
    'Open AI o4 Mini': {
        'code': 'open-ai-o4-mini',
-       'api-key': 'API KEY',
+       'api-key': env("OAI_O4_MINI"),
    },
 
 
    # QWEN family
    'Qwen3 235B A22B': {
        'code': 'qwen3-235B-A22B',
-       'api-key': '',
+       'api-key': env("QWEN_3_235"),
    },
    'Qwen3 30B A3B': {
        'code': 'qwen3-30b-a3b',
-       'api-key': '',
+       'api-key': env("QWEN_3_30"),
    },
 
 
@@ -172,7 +177,7 @@ allowed_models = MappingProxyType({
    # Gemini family
    'Gemini 2.0 Flash Lite': {
        'code': 'gemini-2.0-flash-lite',
-       'api-key': 'API KEY',
+       'api-key': env("GEMINI_API"),
    },
 })
 
@@ -715,6 +720,7 @@ async def get_message(message: Message):
     except Exception as e:
         print(e)
         await message.answer('❌ ***Произошла ошибка генерации ответа или модель не работает...***', parse_mode='MARKDOWN')
+
 
 
 
