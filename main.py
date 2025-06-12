@@ -17,6 +17,7 @@ import g4f
 import re
 from db import Database
 from dotenv import load_dotenv
+import base64
 
 
 load_dotenv()
@@ -192,6 +193,11 @@ def clean_output(text):
     return re.sub(r'\\boxed\{([^}]*)\}', r'\1', text)
 
 
+async def download_photo(file_id: str, path: str):
+    file = await bot.get_file(file_id)
+    await bot.download_file(file.file_path, path)
+
+
 def clean_markdown(text: str) -> str:
     patterns = [
         # (r'```.*?\n(.*?)\n```', r'\1', re.DOTALL), можно убрать код (если нужно)
@@ -237,7 +243,33 @@ async def create_response(model,
                           top_p: float = 0.9,
                           fp: float = 0.2,
                           presence_penalty: float = 0.2,
-                          max_tokens=None):
+                          max_tokens: int | None=None,
+                          img_path: str | None=None):
+    if img_path:
+        with open(img_path, "rb") as f:
+            image_b64 = base64.b64encode(f.read()).decode("utf-8")
+        
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": text},
+                        {"type": "image_url", "image_url": {"url": f'data:image/jpeg;base64,{image_b64}'}},
+                    ],
+                },
+            ],
+            temperature=temperature,
+            top_p=top_p,
+            frequency_penalty=fp,
+            presence_penalty=presence_penalty,
+            max_tokens=max_tokens
+        )
+        return completion
+
+    
     completion = client.chat.completions.create(
         extra_body={},
         model=model,
@@ -256,7 +288,7 @@ async def create_response(model,
         frequency_penalty=fp,  # Уменьшает повторения
         presence_penalty=presence_penalty,  # Поощряет новые темы
         max_tokens=max_tokens
-        )
+    )
     return completion
 
 
@@ -304,6 +336,12 @@ async def get_message(message: Message):
     try:
         current_model = db.get_model(message.from_user.id)
 
+        img_path = None
+        if message.photo:
+            img_path = f'user_photos/{message.photo[-1].file_id}.jpg'
+            await download_photo(message.photo[-1].file_id, img_path)
+
+
         new_api = ''
         model_title = ''
         for model, api in allowed_models.items():
@@ -330,11 +368,15 @@ async def get_message(message: Message):
             # ПОПЫТКА 1
             try:
                 completion = await create_response(model='deepseek/deepseek-r1', prompt=system_prompt,
-                                                   text=message.text, client=client)
+                                                   text=message.text, client=client, img_path=img_path)
 
+                if img_path and os.path.exists(img_path):
+                    os.remove(img_path)
+                
                 if not completion.choices:
                     await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-        
+
+                
                 deepseek_answer = completion.choices[0].message.content
                 new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
 
@@ -342,13 +384,19 @@ async def get_message(message: Message):
                 await send_long_message(new_deepseek_answer, message)
                 print('deepseek 1')
 
+
             # ПОПЫТКА 2
             except Exception:
-                completion = await create_response(model=g4f.models.deepseek_r1, prompt=system_prompt, text=message.text, client=gpt_client)
+                completion = await create_response(model=g4f.models.deepseek_r1, prompt=system_prompt, text=message.text, client=gpt_client, img_path=img_path)
+
                 
+                if img_path and os.path.exists(img_path):
+                    os.remove(img_path)
+               
+
                 if not completion.choices:
                     await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-                
+
                 deepseek_answer = completion.choices[0].message.content
 
                 print(deepseek_answer)
@@ -368,7 +416,6 @@ async def get_message(message: Message):
                 await enable_message.delete()
                 await send_long_message(new_deepseek_answer, message)
                 print('deepseek 2')
-
 
 
 
