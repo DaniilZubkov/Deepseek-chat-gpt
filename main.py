@@ -6,6 +6,7 @@ from aiogram.types import Message, FSInputFile, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from aiogram.enums import ParseMode
 
+
 from keyboards import main_keyboard
 from types import MappingProxyType
 
@@ -244,7 +245,8 @@ async def create_response(model,
                           fp: float = 0.2,
                           presence_penalty: float = 0.2,
                           max_tokens: int | None=None,
-                          img_path: str | None=None):
+                          img_path: str | None=None,
+                          provider=None):
     if img_path:
         with open(img_path, "rb") as f:
             image_b64 = base64.b64encode(f.read()).decode("utf-8")
@@ -257,10 +259,11 @@ async def create_response(model,
                     "role": "user",
                     "content": [
                         {"type": "text", "text": text},
-                        {"type": "image_url", "image_url": {"url": f'data:image/jpeg;base64,{image_b64}'}},
+                        {"type": "image_url", "image_url": {"url": 'https://fr.pinterest.com/pin/140948663331835078/visual-search/?cropSource=5&surfaceType=flashlight&rs=feed_home'}},
                     ],
                 },
             ],
+            provider=provider,
             temperature=temperature,
             top_p=top_p,
             frequency_penalty=fp,
@@ -283,6 +286,7 @@ async def create_response(model,
                 "content": text
             }
         ],
+        provider=provider,
         temperature=temperature,  # Контроль "креативности" (0–1)
         top_p=top_p,  # Влияет на разнообразие ответов
         frequency_penalty=fp,  # Уменьшает повторения
@@ -311,7 +315,7 @@ async def start(message: Message):
             db.set_signup(message.from_user.id, 'done')
 
         await message.answer_photo(photo=FSInputFile(black_photo_path),
-                                   caption=f'Привет, {message.from_user.first_name}. Я AI ассистент в Telegram. У меня есть модели:\n\n'
+                                   caption=f'Привет, {message.from_user.first_name}. Я AI ассистент в Telegram. Здесь доступны многие модели такие как: ***GPT, DEEPSEEK, GEMIMI и другие.*** \n\n'
                                            f'***Ты можешь выбрать удобную для себя модель по кнопке.*** 👇',
                                    parse_mode="MARKDOWN", reply_markup=main_keyboard())
 
@@ -497,7 +501,7 @@ async def get_message(message: Message):
             enable_message = await message.answer(
                 f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
                 parse_mode="MARKDOWN")
-            completion = await create_response(model=g4f.models.gpt_4_turbo, text=message.text, prompt=system_prompt, client=gpt_client)
+            completion = await create_response(model='gpt-4-turbo', text=message.text, prompt=system_prompt, client=gpt_client)
 
             if not completion.choices:
                 await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
@@ -794,11 +798,22 @@ async def change_model(callback_query: CallbackQuery):
 
             builder.adjust(3, 1, 1, 1, 1, 1, 2, 2, 2)
 
-            await callback_query.message.answer_photo(photo=FSInputFile(black_photo_path),
-                                       caption=f'Привет, {callback_query.from_user.first_name}. Я AI ассистент в Telegram. У меня есть модели:\n\n'
-                                               f'***Ты можешь выбрать удобную для себя модель по кнопке.*** 👇',
-                                       parse_mode="MARKDOWN", reply_markup=builder.as_markup())
-
+            await callback_query.message.answer(f'В разделе есть модели такие как <b>ChatGPT, Claude, Gemini, Deepseek и многие другие</b>:\n\n'
+                                               f'<b>🐼 Deepseepk-R1</b> - Модель для сложных задач с глубоким рассуждением\n'
+                                               f'<b>🐳 Deepseek-V3</b>* - Китайская текстовая модель, созданая Ляном Вэньфэном\n'
+                                               f'<b>⚡ Deepseek-QWEN</b> - Deepseek на базе китайской модели QWEN\n\n'
+                                               f'<b>🍓 OpenAI-O3</b> - Рассуждающая модель с наилучшими решениями\n'
+                                               f'<b>🧠 OpenAI-O4 mini</b> - Для кодинга и точных наук\n\n'
+                                               f'<b>✨ GPT-4 Turbo</b> – Мощная и быстрая модель OpenAI с увеличенным контекстом.\n'
+                                               f'<b>💥 PT-4.1</b> – Улучшенная версия GPT-4 с более точными ответами.\n'
+                                               f'<b>💎 GPT-4o</b> – Оптимизированная для скорости и эффективности версия GPT-4.\n'
+                                               f'<b>🍃 GPT-4.1 Mini</b> – Компактная и экономичная версия GPT-4.1.\n\n'
+                                               f'<b>🔮 Claude 3.7 Sonnet</b> – Сбалансированная модель от Anthropic с высокой точностью.\n'
+                                               f'<b>☁ Claude 3.7 Sonnet (thinking)</b> – Версия с увеличенным временем "размышления" для более глубоких ответов.\n\n'
+                                               f'<b>💬 Qwen3 235B A22B</b> – Масштабная модель Qwen с 235 млрд параметров, высокая производительность в сложных задачах.\n'
+                                               f'<b>🤖 Qwen3 30B A3B</b> – Более компактная, но эффективная версия Qwen3, подходит для баланса скорости и качества.\n\n'
+                                               f'<b>💡 Gemini 2.0 Flash Lite</b> – Облегчённая и быстрая версия Gemini 2.0, оптимизирована для оперативных запросов.',
+                                       parse_mode="html", reply_markup=builder.as_markup())
 
 
         if callback_query.data.startswith('model_'):
