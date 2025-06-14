@@ -248,9 +248,15 @@ async def create_response(model,
                           img_path: str | None=None,
                           provider=None):
     if img_path:
+        if not os.path.exists(img_path):
+            raise FileNotFoundError(f"Img Path NOT Found: {img_path}")
+        
+        if not os.access(img_path, os.R_OK):
+            raise PermissionError(f"Нет прав на чтение изображения: {img_path}")
+
         with open(img_path, "rb") as f:
             image_b64 = base64.b64encode(f.read()).decode("utf-8")
-        
+            
         completion = client.chat.completions.create(
             model=model,
             messages=[
@@ -259,7 +265,7 @@ async def create_response(model,
                     "role": "user",
                     "content": [
                         {"type": "text", "text": text},
-                        {"type": "image_url", "image_url": {"url": 'https://fr.pinterest.com/pin/140948663331835078/visual-search/?cropSource=5&surfaceType=flashlight&rs=feed_home'}},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
                     ],
                 },
             ],
@@ -372,7 +378,7 @@ async def get_message(message: Message):
             # ПОПЫТКА 1
             try:
                 completion = await create_response(model='deepseek/deepseek-r1', prompt=system_prompt,
-                                                   text=message.text, client=client, img_path=img_path)
+                                                   text=message.text, client=client)
 
                 if img_path and os.path.exists(img_path):
                     os.remove(img_path)
@@ -391,7 +397,7 @@ async def get_message(message: Message):
 
             # ПОПЫТКА 2
             except Exception:
-                completion = await create_response(model=g4f.models.deepseek_r1, prompt=system_prompt, text=message.text, client=gpt_client, img_path=img_path)
+                completion = await create_response(model=g4f.models.deepseek_r1, prompt=system_prompt, text=message.text, client=gpt_client)
 
                 
                 if img_path and os.path.exists(img_path):
@@ -517,21 +523,47 @@ async def get_message(message: Message):
 
 
 
-        if current_model == 'gpt4.1':
-            enable_message = await message.answer(
-                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                parse_mode="MARKDOWN")
+        if current_model == 'gpt4.1':            
+            try:
+                print('Начало обработки кода', flush=True)
+                
+                enable_message = await message.answer(
+                    f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
+                    parse_mode="MARKDOWN")
+                
+                message_text = message.caption if message.photo else message.text
 
-            completion = await create_response(text=message.text, client=gpt_client, model='gpt-4.1', prompt=system_prompt)
-
-            if not completion.choices:
-                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-
-            gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-            await enable_message.delete()
+                print(f'Сообщение "{message_text}", тип: {type(message_text)}', flush=True)
 
 
-            await send_long_message(gpt_answer, message)
+                if isinstance(message_text, list):
+                    message_text = " ".join(message_text)
+
+
+                # Создаем папку har_and_cookies если ее нет и даем права
+                os.makedirs("har_and_cookies", exist_ok=True)
+                os.chmod("har_and_cookies", 0o755)  # Права на чтение и запись
+
+
+                completion = await create_response(text=message_text, client=gpt_client, model='gpt-4.1', prompt=system_prompt, img_path=img_path)
+
+                if img_path and os.path.exists(img_path):
+                    os.remove(img_path)
+
+                if not completion.choices:
+                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+
+                gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+                await enable_message.delete()
+
+
+                await send_long_message(gpt_answer, message)
+            
+            except PermissionError as e:
+                print(f'❌ Ошибка доступа: {str(e)}')
+    
+            except Exception as e:
+                print(f'❌ Произошла ошибка: {str(e)}')
 
 
 
@@ -542,31 +574,66 @@ async def get_message(message: Message):
 
 
         if current_model == 'gpt4-o':
-            enable_message = await message.answer(
-                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                parse_mode="MARKDOWN")
+            try:
+                enable_message = await message.answer(
+                    f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
+                    parse_mode="MARKDOWN")
 
-            completion = await create_response(model='gpt-4o', prompt=system_prompt, client=gpt_client, text=message.text)
+
+                message_text = message.caption if message.photo else message.text
+
+                print(f'Сообщение "{message_text}", тип: {type(message_text)}', flush=True)
+
+                if isinstance(message_text, list):
+                    message_text = " ".join(message_text)
 
 
-            if not completion.choices:
-                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                # Создаем папку har_and_cookies если ее нет и даем права
+                os.makedirs("har_and_cookies", exist_ok=True)
+                os.chmod("har_and_cookies", 0o755)  # Права на чтение и запись
 
-            gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-            await enable_message.delete()
+                completion = await create_response(model='gpt-4o', prompt=system_prompt, client=gpt_client, text=message_text, img_path=img_path)
 
-            await send_long_message(gpt_answer, message)
+                if img_path and os.path.exists(img_path):
+                    os.remove(img_path)
 
+                if not completion.choices:
+                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+
+                gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+                await enable_message.delete()
+
+                await send_long_message(gpt_answer, message)
+
+            except PermissionError as e:
+                print(f'❌ Ошибка доступа: {str(e)}')
+    
+            except Exception as e:
+                print(f'❌ Произошла ошибка: {str(e)}')
 
 
 
 
         if current_model == 'gpt4.1-mini':
-            enable_message = await message.answer(
-                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                parse_mode="MARKDOWN")
+            if message.photo:
+                if img_path and os.path.exists(img_path):
+                    os.remove(img_path)
 
-            completion = await create_response(text=message.text, model='gpt-4.1-mini', prompt=system_prompt, client=gpt_client)
+                await message.answer('НЕТ ПОДДЕРЖКИ ФОТО')
+                return
+
+            enable_message = await message.answer(
+                    f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
+                    parse_mode="MARKDOWN")
+
+            message_text = message.text
+
+            if isinstance(message_text, list):
+                message_text = " ".join(message_text)
+
+            
+            completion = await create_response(text=message_text, model='gpt-4.1-mini', prompt=system_prompt, client=gpt_client)
+
 
             if not completion.choices:
                 await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
