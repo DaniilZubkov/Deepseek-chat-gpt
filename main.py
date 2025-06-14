@@ -19,6 +19,7 @@ import re
 from db import Database
 from dotenv import load_dotenv
 import base64
+import random
 
 
 load_dotenv()
@@ -246,7 +247,8 @@ async def create_response(model,
                           presence_penalty: float = 0.2,
                           max_tokens: int | None=None,
                           img_path: str | None=None,
-                          provider=None):
+                          provider=None,
+                          headers: dict | None=None):
     if img_path:
         if not os.path.exists(img_path):
             raise FileNotFoundError(f"Img Path NOT Found: {img_path}")
@@ -256,7 +258,7 @@ async def create_response(model,
 
         with open(img_path, "rb") as f:
             image_b64 = base64.b64encode(f.read()).decode("utf-8")
-            
+             
         completion = client.chat.completions.create(
             model=model,
             messages=[
@@ -269,6 +271,7 @@ async def create_response(model,
                     ],
                 },
             ],
+            headers=headers,
             provider=provider,
             temperature=temperature,
             top_p=top_p,
@@ -292,6 +295,7 @@ async def create_response(model,
                 "content": text
             }
         ],
+        headers=headers,
         provider=provider,
         temperature=temperature,  # Контроль "креативности" (0–1)
         top_p=top_p,  # Влияет на разнообразие ответов
@@ -385,6 +389,7 @@ async def get_message(message: Message):
                 
                 if not completion.choices:
                     await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                    return
 
                 
                 deepseek_answer = completion.choices[0].message.content
@@ -406,6 +411,7 @@ async def get_message(message: Message):
 
                 if not completion.choices:
                     await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                    return
 
                 deepseek_answer = completion.choices[0].message.content
 
@@ -439,6 +445,7 @@ async def get_message(message: Message):
 
                 if not completion.choices:
                     await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                    return
 
                 deepseek_answer = completion.choices[0].message.content
                 new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
@@ -477,6 +484,7 @@ async def get_message(message: Message):
                 
                 if not completion.choices:
                     await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                    return
 
                 deepseek_answer = completion.choices[0].message.content
                 new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
@@ -489,6 +497,7 @@ async def get_message(message: Message):
 
                 if not completion.choices:
                     await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                    return
         
                 deepseek_answer = completion.choices[0].message.content
                 new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
@@ -507,10 +516,12 @@ async def get_message(message: Message):
             enable_message = await message.answer(
                 f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
                 parse_mode="MARKDOWN")
+
             completion = await create_response(model='gpt-4-turbo', text=message.text, prompt=system_prompt, client=gpt_client)
 
             if not completion.choices:
                 await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                return
         
             gpt_answer = completion.choices[0].message.content
             new_gpt_answer = clean_output(clean_markdown(gpt_answer))
@@ -552,6 +563,7 @@ async def get_message(message: Message):
 
                 if not completion.choices:
                     await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                    return
 
                 gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
                 await enable_message.delete()
@@ -599,6 +611,7 @@ async def get_message(message: Message):
 
                 if not completion.choices:
                     await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                    return
 
                 gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
                 await enable_message.delete()
@@ -637,6 +650,7 @@ async def get_message(message: Message):
 
             if not completion.choices:
                 await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                return
 
             gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
             await enable_message.delete()
@@ -650,20 +664,39 @@ async def get_message(message: Message):
 
 
         if current_model == 'gpt4-o-mini':
-            enable_message = await message.answer(
-                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                parse_mode="MARKDOWN")
+            try:
+                enable_message = await message.answer(
+                    f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
+                    parse_mode="MARKDOWN")
 
-            completion = await create_response(text=message.text, model='gpt-4o-mini', client=gpt_client, prompt=system_prompt)
+                message_text = message.caption if message.photo else message.text
+ 
+                if isinstance(message_text, list):
+                    message_text = " ".join(message_text)
 
-            if not completion.choices:
-                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                # Создаем папку har_and_cookies если ее нет и даем права
+                os.makedirs("har_and_cookies", exist_ok=True)
+                os.chmod("har_and_cookies", 0o755)  # Права на чтение и запись
 
-            gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-            await enable_message.delete()
+                completion = await create_response(text=message_text, model='gpt-4o-mini', client=gpt_client, prompt=system_prompt, img_path=img_path)
 
-            await send_long_message(gpt_answer, message)
+                if img_path and os.path.exists(img_path):
+                    os.remove(img_path)
 
+                if not completion.choices:
+                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                    return
+
+                gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
+                await enable_message.delete()
+
+                await send_long_message(gpt_answer, message)
+
+            except PermissionError as e:
+                print(f'❌ Ошибка доступа: {str(e)}')
+    
+            except Exception as e:
+                print(f'❌ Произошла ошибка: {str(e)}')
 
 
 
@@ -677,10 +710,21 @@ async def get_message(message: Message):
                 f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
                 parse_mode="MARKDOWN")
 
-            completion = await create_response(text=message.text, model=g4f.models.claude_3_7_sonnet, client=gpt_client, prompt=system_prompt)
+            await asyncio.sleep(random.uniform(1.5, 3.0))
+
+            completion = await create_response(text=message.text, model='claude-3.7-sonnet', client=gpt_client, prompt=system_prompt, provider=g4f.Provider.OpenRouter,
+                                               headers={
+            'User-Agent': random.choice([
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            ]),
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://www.google.com/'
+            })
 
             if not completion.choices:
                 await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                return
 
 
             claude_answer = clean_output(clean_markdown(completion.choices[0].message.content))

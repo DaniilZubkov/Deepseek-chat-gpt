@@ -1,3 +1,6 @@
 database.db
 .env
 har_and_cookies
+__pycache__
+.idea
+user_photos
