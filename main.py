@@ -20,6 +20,7 @@ from db import Database
 from dotenv import load_dotenv
 import base64
 import random
+import logging
 
 
 load_dotenv()
@@ -219,6 +220,24 @@ def clean_markdown(text: str) -> str:
     return text
 
 
+
+def encode_img(img_path):
+    with open(img_path, "rb") as f:
+        image_b64 = base64.b64encode(f.read()).decode("utf-8")
+        return image_b64
+
+
+def cleanup_image(img_path):
+    if img_path and os.path.exists(img_path):
+        try:
+            os.remove(img_path)
+        except OSError as e:
+            print(f"Error deleting image: {e}")
+    else:
+        return
+
+
+
 async def update_keyboard(message: Message, user_id: int):
     """Обновляет клавиатуру с моделями для указанного пользователя"""
     current_model = db.get_model(user_id)
@@ -237,6 +256,16 @@ async def update_keyboard(message: Message, user_id: int):
 
 
 
+async def send_long_message(text, message):
+    if len(text) <= 4096:
+        await message.answer(text, parse_mode='MARKDOWN')
+    else:
+        parts = [text[i:i+4096] for i in range(0, len(text), 4096)]
+        for part in parts:
+            await message.answer(part, parse_mode='MARKDOWN')
+
+
+
 async def create_response(model,
                           prompt: str,
                           text: str,
@@ -247,8 +276,13 @@ async def create_response(model,
                           presence_penalty: float = 0.2,
                           max_tokens: int | None=None,
                           img_path: str | None=None,
-                          provider=None,
+                          provider: str | None=None,
                           headers: dict | None=None):
+    messages = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": []}
+    ]
+
     if img_path:
         if not os.path.exists(img_path):
             raise FileNotFoundError(f"Img Path NOT Found: {img_path}")
@@ -256,54 +290,92 @@ async def create_response(model,
         if not os.access(img_path, os.R_OK):
             raise PermissionError(f"Нет прав на чтение изображения: {img_path}")
 
-        with open(img_path, "rb") as f:
-            image_b64 = base64.b64encode(f.read()).decode("utf-8")
-             
-        completion = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": text},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
-                    ],
-                },
-            ],
-            headers=headers,
-            provider=provider,
-            temperature=temperature,
-            top_p=top_p,
-            frequency_penalty=fp,
-            presence_penalty=presence_penalty,
-            max_tokens=max_tokens
-        )
-        return completion
+        img_b64 = encode_img(img_path)
+        messages[1]["content"].extend([
+            {"type": "text", "text": text},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
+        ])
+    else:
+        messages[1]["content"] = text
 
+    # ОБЩИЕ ПАРАМЕТРЫ ЗАПРОСА
+    params = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature, # Креативность (0-1)
+        "top_p": top_p, # Разнообразие ответов
+        "frequency_penalty": fp, # Меньше повторов => меньше воды
+        "presence_penalty": presence_penalty, # Поощряет новые темы
+        "max_tokens": max_tokens,
+        "headers": headers,
+        "provider": provider
+    }
+
+    return client.chat.completions.create(**params)
+
+
+
+async def handle_model_requests(message,
+                                all_models: list,
+                                model_title: str,
+                                system_prompt: str,
+                                img_support=True,
+                                img_path: str | None=None,
+                                ):
+    try:
+        if message.photo and not img_support:
+            await message.answer('НЕТ ПОДДЕРЖКИ ФОТО В ДАННОЙ МОДЕЛИ')
+            cleanup_image(img_path)
+
+            return
+
+        enable_message = await message.answer(
+                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***', parse_mode="MARKDOWN")
+
+        message_text = message.caption if message.photo else message.text
+
+        models = all_models
+
+        for attempt, model_info in enumerate(models, 1):
+            try:
+                completion = await create_response(model=model_info['model'], prompt=system_prompt,
+                                                   text=message_text, client=model_info['client'], img_path=img_path)
+
+                if isinstance(message_text, list):
+                    message_text = " ".join(message_text)
+
+                # Создаем папку har_and_cookies если ее нет и даем права
+                os.makedirs("har_and_cookies", exist_ok=True)
+                os.chmod("har_and_cookies", 0o755)  # Права на чтение и запись
+
+                if not completion.choices:
+                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
+                    cleanup_image(img_path)
+                    
+                    return
+                 
+                model_answer = completion.choices[0].message.content
+                model_new_answer = clean_output(clean_markdown(model_answer))
+
+                await enable_message.delete()
+                await send_long_message(model_new_answer, message)
+
+                return
+
+            except Exception as e:
+                logging.warning(f"Attempt {attempt} failed: {str(e)}")
+
+                if attempt == len(all_models):
+                    await message.answer('⚠️ ***Не удалось получить ответ от модели***', parse_mode="MARKDOWN")
     
-    completion = client.chat.completions.create(
-        extra_body={},
-        model=model,
-        messages=[
-            {
-                "role": "system",
-                "content": prompt
-            },
-            {
-                "role": "user",
-                "content": text
-            }
-        ],
-        headers=headers,
-        provider=provider,
-        temperature=temperature,  # Контроль "креативности" (0–1)
-        top_p=top_p,  # Влияет на разнообразие ответов
-        frequency_penalty=fp,  # Уменьшает повторения
-        presence_penalty=presence_penalty,  # Поощряет новые темы
-        max_tokens=max_tokens
-    )
-    return completion
+        cleanup_image(img_path)
+    
+    except Exception as e:
+        logging.error(f"Error in handle_model_request: {str(e)}")
+        await message.answer('❌ ***Произошла ошибка при обработке запроса или модель не работает...***', parse_mode="MARKDOWN")
+
+    finally:
+        cleanup_image(img_path)
 
 
 
@@ -338,15 +410,6 @@ async def start(message: Message):
 
 @dp.message()
 async def get_message(message: Message):
-    async def send_long_message(text, message):
-        if len(text) <= 4096:
-            await message.answer(text, parse_mode='MARKDOWN')
-        else:
-            parts = [text[i:i+4096] for i in range(0, len(text), 4096)]
-            for part in parts:
-                await message.answer(part, parse_mode='MARKDOWN')
-
-
     try:
         current_model = db.get_model(message.from_user.id)
 
@@ -372,509 +435,167 @@ async def get_message(message: Message):
         gpt_client = Client()
 
 
-
-
+        # DEEPSEEK FAMILY
         # DEEPSEEK R1 requests
         if current_model == 'deepseek-r1':
-            enable_message = await message.answer(
-                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***', parse_mode="MARKDOWN")
-
-            # ПОПЫТКА 1
-            try:
-                completion = await create_response(model='deepseek/deepseek-r1', prompt=system_prompt,
-                                                   text=message.text, client=client)
-
-                if img_path and os.path.exists(img_path):
-                    os.remove(img_path)
-                
-                if not completion.choices:
-                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-                    return
-
-                
-                deepseek_answer = completion.choices[0].message.content
-                new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
-
-                await enable_message.delete()
-                await send_long_message(new_deepseek_answer, message)
-                print('deepseek 1')
-
-
-            # ПОПЫТКА 2
-            except Exception:
-                completion = await create_response(model=g4f.models.deepseek_r1, prompt=system_prompt, text=message.text, client=gpt_client)
-
-                
-                if img_path and os.path.exists(img_path):
-                    os.remove(img_path)
-               
-
-                if not completion.choices:
-                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-                    return
-
-                deepseek_answer = completion.choices[0].message.content
-
-                print(deepseek_answer)
-                print(clean_markdown(deepseek_answer))
-                print(len(clean_output(clean_markdown(deepseek_answer))))
-
-                new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
-
-            # if '`' in new_deepseek_answer[0:2] and '`' in new_deepseek_answer[-3:-1]:
-            #     if len([char for char in new_deepseek_answer]) >= 4096:
-            #         while new_deepseek_answer:
-            #             await message.answer(new_deepseek_answer[:4096], parse_mode='MARKDOWN')
-            #             # удаление отправленной части текста
-            #             new_deepseek_answer = new_deepseek_answer[4096:]
-            #     await message.answer(new_deepseek_answer[2:-3], parse_mode='MARKDOWN')
-            #
-                await enable_message.delete()
-                await send_long_message(new_deepseek_answer, message)
-                print('deepseek 2')
+            await handle_model_requests(message,
+                                        img_support=False,
+                                        img_path=img_path,
+                                        all_models=[
+                                        {'model': 'deepseek/deepseek-r1', 'client': client},
+                                        {'model': g4f.models.deepseek_r1, 'client': gpt_client}
+                                        ],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
 
 
 
-        # DEEPSEEK FAMILY
+
+        # DEEPSEEK V3
         if current_model == 'deepseek-v3':
-            enable_message = await message.answer(f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                                 parse_mode="MARKDOWN")
-            try:
-                completion = await create_response(model=g4f.models.deepseek_v3, text=message.text, prompt=system_prompt, client=gpt_client)
-
-                if not completion.choices:
-                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-                    return
-
-                deepseek_answer = completion.choices[0].message.content
-                new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
-                
-                await enable_message.delete()
-                await send_long_message(new_deepseek_answer, message)
-
-
-            except Exception as e: 
-                completion = await create_response(model='deepseek/deepseek-chat-v3-0324', text=message.text, prompt=system_prompt, client=client)
-                deepseek_answer = completion.choices[0].message.content
-
-
-                print(deepseek_answer)
-                print(clean_markdown(deepseek_answer))
-                print(len(clean_output(clean_markdown(deepseek_answer))))
-                new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
-
-
-                await enable_message.delete()
-                await send_long_message(new_deepseek_answer, message)
-
-
-
-
-
-
+            await handle_model_requests(message,
+                                        img_support=False,
+                                        img_path=img_path,
+                                        all_models=[
+                                        {'model': 'deepseek/deepseek-chat-v3-0324', 'client': client},
+                                        {'model': g4f.models.deepseek_v3, 'client': gpt_client}
+                                        ],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
         # DEEPSEK r1 (qwen)
         if current_model == 'deepseek-r1-qwen':
-            enable_message = await message.answer(f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                                 parse_mode="MARKDOWN")
+            await handle_model_requests(message,
+                                        img_support=False,
+                                        img_path=img_path,
+                                        all_models=[
+                                        {'model': 'deepseek/deepseek-r1-distill-qwen-32b', 'client': client},
+                                        {'model': g4f.models.deepseek_r1_distill_qwen_32b, 'client': gpt_client}
+                                        ],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
-            try:
-                completion = await create_response(model=g4f.models.deepseek_r1_distill_qwen_32b, text=message.text, prompt=system_prompt, client=gpt_client)
-                
-                if not completion.choices:
-                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-                    return
-
-                deepseek_answer = completion.choices[0].message.content
-                new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
-
-                await enable_message.delete()
-                await send_long_message(new_deepseek_answer, message)
-
-            except Exception:
-                completion = await create_response(model='deepseek/deepseek-r1-distill-qwen-32b', text=message.text, prompt=system_prompt, client=client)
-
-                if not completion.choices:
-                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-                    return
-        
-                deepseek_answer = completion.choices[0].message.content
-                new_deepseek_answer = clean_output(clean_markdown(deepseek_answer))
-
-                await enable_message.delete()
-                await send_long_message(new_deepseek_answer, message)
-
-
-
-
-
-
-
-        # GPT
+        # GPT 4 turbo
         if current_model == 'gpt4-turbo':
-            enable_message = await message.answer(
-                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                parse_mode="MARKDOWN")
+            await handle_model_requests(message,
+                                        img_support=True,
+                                        img_path=img_path,
+                                        all_models=[{'model': 'gpt-4-turbo', 'client': gpt_client}],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
-            completion = await create_response(model='gpt-4-turbo', text=message.text, prompt=system_prompt, client=gpt_client)
+        # GPT 4.1
+        if current_model == 'gpt4.1':     
+            await handle_model_requests(message,
+                                        img_support=True,
+                                        img_path=img_path,
+                                        all_models=[{'model': 'gpt-4.1', 'client': gpt_client}],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
-            if not completion.choices:
-                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-                return
-        
-            gpt_answer = completion.choices[0].message.content
-            new_gpt_answer = clean_output(clean_markdown(gpt_answer))
-
-            await enable_message.delete()
-            await send_long_message(gpt_answer, message)
-
-
-
-
-
-
-        if current_model == 'gpt4.1':            
-            try:
-                print('Начало обработки кода', flush=True)
-                
-                enable_message = await message.answer(
-                    f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                    parse_mode="MARKDOWN")
-                
-                message_text = message.caption if message.photo else message.text
-
-                print(f'Сообщение "{message_text}", тип: {type(message_text)}', flush=True)
-
-
-                if isinstance(message_text, list):
-                    message_text = " ".join(message_text)
-
-
-                # Создаем папку har_and_cookies если ее нет и даем права
-                os.makedirs("har_and_cookies", exist_ok=True)
-                os.chmod("har_and_cookies", 0o755)  # Права на чтение и запись
-
-
-                completion = await create_response(text=message_text, client=gpt_client, model='gpt-4.1', prompt=system_prompt, img_path=img_path)
-
-                if img_path and os.path.exists(img_path):
-                    os.remove(img_path)
-
-                if not completion.choices:
-                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-                    return
-
-                gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-                await enable_message.delete()
-
-
-                await send_long_message(gpt_answer, message)
-            
-            except PermissionError as e:
-                print(f'❌ Ошибка доступа: {str(e)}')
-    
-            except Exception as e:
-                print(f'❌ Произошла ошибка: {str(e)}')
-
-
-
-
-
-
-
-
-
+        # GPT 4o
         if current_model == 'gpt4-o':
-            try:
-                enable_message = await message.answer(
-                    f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                    parse_mode="MARKDOWN")
+            await handle_model_requests(message,
+                                        img_support=True,
+                                        img_path=img_path,
+                                        all_models=[{'model': 'gpt-4o', 'client': gpt_client}],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
-
-                message_text = message.caption if message.photo else message.text
-
-                print(f'Сообщение "{message_text}", тип: {type(message_text)}', flush=True)
-
-                if isinstance(message_text, list):
-                    message_text = " ".join(message_text)
-
-
-                # Создаем папку har_and_cookies если ее нет и даем права
-                os.makedirs("har_and_cookies", exist_ok=True)
-                os.chmod("har_and_cookies", 0o755)  # Права на чтение и запись
-
-                completion = await create_response(model='gpt-4o', prompt=system_prompt, client=gpt_client, text=message_text, img_path=img_path)
-
-                if img_path and os.path.exists(img_path):
-                    os.remove(img_path)
-
-                if not completion.choices:
-                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-                    return
-
-                gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-                await enable_message.delete()
-
-                await send_long_message(gpt_answer, message)
-
-            except PermissionError as e:
-                print(f'❌ Ошибка доступа: {str(e)}')
-    
-            except Exception as e:
-                print(f'❌ Произошла ошибка: {str(e)}')
-
-
-
-
+        # GPT 4.1 mini
         if current_model == 'gpt4.1-mini':
-            if message.photo:
-                if img_path and os.path.exists(img_path):
-                    os.remove(img_path)
+            await handle_model_requests(message,
+                                        img_support=False,
+                                        img_path=img_path,
+                                        all_models=[{'model': 'gpt-4.1-mini', 'client': gpt_client}],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
-                await message.answer('НЕТ ПОДДЕРЖКИ ФОТО')
-                return
-
-            enable_message = await message.answer(
-                    f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                    parse_mode="MARKDOWN")
-
-            message_text = message.text
-
-            if isinstance(message_text, list):
-                message_text = " ".join(message_text)
-
-            
-            completion = await create_response(text=message_text, model='gpt-4.1-mini', prompt=system_prompt, client=gpt_client)
-
-
-            if not completion.choices:
-                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-                return
-
-            gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-            await enable_message.delete()
-
-            await send_long_message(gpt_answer, message)
-
-
-
-
-
-
-
+        # GPT 4o MINI
         if current_model == 'gpt4-o-mini':
-            try:
-                enable_message = await message.answer(
-                    f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                    parse_mode="MARKDOWN")
-
-                message_text = message.caption if message.photo else message.text
- 
-                if isinstance(message_text, list):
-                    message_text = " ".join(message_text)
-
-                # Создаем папку har_and_cookies если ее нет и даем права
-                os.makedirs("har_and_cookies", exist_ok=True)
-                os.chmod("har_and_cookies", 0o755)  # Права на чтение и запись
-
-                completion = await create_response(text=message_text, model='gpt-4o-mini', client=gpt_client, prompt=system_prompt, img_path=img_path)
-
-                if img_path and os.path.exists(img_path):
-                    os.remove(img_path)
-
-                if not completion.choices:
-                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-                    return
-
-                gpt_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-                await enable_message.delete()
-
-                await send_long_message(gpt_answer, message)
-
-            except PermissionError as e:
-                print(f'❌ Ошибка доступа: {str(e)}')
-    
-            except Exception as e:
-                print(f'❌ Произошла ошибка: {str(e)}')
-
-
-
-
-
+            await handle_model_requests(message,
+                                        img_support=True,
+                                        img_path=img_path,
+                                        all_models=[{'model': 'gpt-4o-mini', 'client': gpt_client}],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
 
         # CLAUDE family
+        # CLAUDE 3.7 sonnet
         if current_model == 'claude3.7-sonnet':
-            enable_message = await message.answer(
-                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                parse_mode="MARKDOWN")
-
-            await asyncio.sleep(random.uniform(1.5, 3.0))
-
-            completion = await create_response(text=message.text, model='claude-3.7-sonnet', client=gpt_client, prompt=system_prompt, provider=g4f.Provider.OpenRouter,
-                                               headers={
-            'User-Agent': random.choice([
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            ]),
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://www.google.com/'
-            })
-
-            if not completion.choices:
-                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-                return
+            await handle_model_requests(message,
+                                        img_support=True,
+                                        img_path=img_path,
+                                        all_models=[{'model': 'claude-3.7-sonnet', 'client': gpt_client}],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
 
-            claude_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-            await enable_message.delete()
-
-            await send_long_message(claude_answer, message)
-
-
-
-
-
-
-
+        # CLAUDE 3.7 sonnet (thinking)
         if current_model == 'claude3.7-sonnet-thinking':
-            enable_message = await message.answer(
-                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                parse_mode="MARKDOWN")
+            await handle_model_requests(message,
+                                        img_support=True,
+                                        img_path=img_path,
+                                        all_models=[{'model': 'claude-3.7-sonnet-thinking', 'client': gpt_client}],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
-            completion = await create_response(text=message.text, client=gpt_client, model=g4f.models.claude_3_7_sonnet_thinking, prompt=system_prompt)
-
-            if not completion.choices:
-                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-
-
-            claude_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-            await enable_message.delete()
-
-            await send_long_message(claude_answer, message)
-
-
-
-
-
-
-        # OPEN AI FAMILY
+        # OPEN AI FAMILY (o3)
         if current_model == 'open-ai-o3':
-            enable_message = await message.answer(
-                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                parse_mode="MARKDOWN")
+            await handle_model_requests(message,
+                                        img_support=True,
+                                        img_path=img_path,
+                                        all_models=[{'model': 'openai/o3', 'client': client}],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
-            completion = await create_response(text=message.text, client=client, model='openai/o3', prompt=system_prompt)
-
-            if not completion.choices:
-                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-
-            oai_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-            await enable_message.delete()
-
-            await send_long_message(oai_answer, message)
-
-
-
-
-
+        # OPEN AI O4 mini
         if current_model == 'open-ai-o4-mini':
-            enable_message = await message.answer(
-                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                parse_mode="MARKDOWN")
-
-            completion = await create_response(text=message.text, client=gpt_client, model=g4f.models.o4_mini, prompt=system_prompt)
-
-            if not completion.choices:
-                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-
-            oai_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-            await enable_message.delete()
-
-            await send_long_message(oai_answer, message)
+            await handle_model_requests(message,
+                                        img_support=True,
+                                        img_path=img_path,
+                                        all_models=[{'model': g4f.models.o4_mini, 'client': gpt_client}],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
 
-
-
-        # QWEN FAMILY
+        # QWEN FAMILY (235)
         if current_model == 'qwen3-235B-A22B':
-            enable_message = await message.answer(
-                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                parse_mode="MARKDOWN")
+            await handle_model_requests(message,
+                                        img_support=False,
+                                        img_path=img_path,
+                                        all_models=[
+                                        {'model': 'qwen-3-235b', 'client': gpt_client},
+                                        {'model': 'qwen/qwen3-235b-a22b', 'client': client}
+                                        ],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
-            try:
-                completion = await create_response(text=message.text, client=client, model='qwen/qwen3-235b-a22b', prompt=system_prompt)
-
-                if not completion.choices:
-                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-        
-                qwen_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-                await enable_message.delete()
-
-                await send_long_message(qwen_answer, message)
-                print('qwen 1')
-            
-            except Exception:
-                completion = await create_response(text=message.text, client=gpt_client, model='qwen-3-235b', prompt=system_prompt)
-
-                if not completion.choices:
-                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-        
-                qwen_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-                await enable_message.delete()
-
-                await send_long_message(qwen_answer, message)
-
-
-
-
-
-
+        # QWEN 30b
         if current_model == 'qwen3-30b-a3b':
-            enable_message = await message.answer(
-                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                parse_mode="MARKDOWN")
-
-            try:
-                completion = await create_response(text=message.text, client=client, model='qwen/qwen3-30b-a3b', prompt=system_prompt)
-
-                if not completion.choices:
-                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-        
-                qwen_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-                await enable_message.delete()
-
-                await send_long_message(qwen_answer, message)
-            
-            except Exception:
-                completion = await create_response(text=message.text, client=gpt_client, model='qwen-3-30b', prompt=system_prompt)
-
-                if not completion.choices:
-                    await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-        
-                qwen_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-                await enable_message.delete()
-
-                await send_long_message(qwen_answer, message)
+            await handle_model_requests(message,
+                                        img_support=False,
+                                        img_path=img_path,
+                                        all_models=[
+                                        {'model': 'qwen-3-30b', 'client': gpt_client},
+                                        {'model': 'qwen/qwen3-30b-a3b', 'client': client}
+                                        ],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
 
-
-        # GEMINI FAMILY
+        # GEMINI FAMILY (2.0 flash lite)
         if current_model == 'gemini-2.0-flash-lite':
-            enable_message = await message.answer(
-                f'🛠️ ***Пожалуйста подождите, {model_title} обрабатывает ваш запрос...***',
-                parse_mode="MARKDOWN")
-
-            completion = await create_response(text=message.text, client=gpt_client, model=g4f.models.gemini_2_0_flash_thinking, prompt=system_prompt)
-
-            if not completion.choices:
-                await message.answer(f'❌ ***{model_title} ничего не вернул***', parse_mode='MARKDOWN')
-
-            gemini_answer = clean_output(clean_markdown(completion.choices[0].message.content))
-            await enable_message.delete()
-            
-            await send_long_message(gemini_answer, message)
+            await handle_model_requests(message,
+                                        img_support=True,
+                                        img_path=img_path,
+                                        all_models=[
+                                        {'model': g4f.models.gemini_2_0_flash_thinking, 'client': gpt_client}
+                                        ],
+                                        model_title=model_title,
+                                        system_prompt=system_prompt)
 
 
 
@@ -882,6 +603,7 @@ async def get_message(message: Message):
     except Exception as e:
         print(e)
         await message.answer('❌ ***Произошла ошибка генерации ответа или модель не работает...***', parse_mode='MARKDOWN')
+        return
 
 
 
@@ -911,12 +633,12 @@ async def change_model(callback_query: CallbackQuery):
 
             await callback_query.message.answer(f'В разделе есть модели такие как <b>ChatGPT, Claude, Gemini, Deepseek и многие другие</b>:\n\n'
                                                f'<b>🐼 Deepseepk-R1</b> - Модель для сложных задач с глубоким рассуждением\n'
-                                               f'<b>🐳 Deepseek-V3</b>* - Китайская текстовая модель, созданая Ляном Вэньфэном\n'
+                                               f'<b>🐳 Deepseek-V3</b> - Китайская текстовая модель, созданая Ляном Вэньфэном\n'
                                                f'<b>⚡ Deepseek-QWEN</b> - Deepseek на базе китайской модели QWEN\n\n'
                                                f'<b>🍓 OpenAI-O3</b> - Рассуждающая модель с наилучшими решениями\n'
                                                f'<b>🧠 OpenAI-O4 mini</b> - Для кодинга и точных наук\n\n'
                                                f'<b>✨ GPT-4 Turbo</b> – Мощная и быстрая модель OpenAI с увеличенным контекстом.\n'
-                                               f'<b>💥 PT-4.1</b> – Улучшенная версия GPT-4 с более точными ответами.\n'
+                                               f'<b>💥 GPT-4.1</b> – Улучшенная версия GPT-4 с более точными ответами.\n'
                                                f'<b>💎 GPT-4o</b> – Оптимизированная для скорости и эффективности версия GPT-4.\n'
                                                f'<b>🍃 GPT-4.1 Mini</b> – Компактная и экономичная версия GPT-4.1.\n\n'
                                                f'<b>🔮 Claude 3.7 Sonnet</b> – Сбалансированная модель от Anthropic с высокой точностью.\n'
