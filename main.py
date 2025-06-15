@@ -32,11 +32,6 @@ dp = Dispatcher(storage=MemoryStorage())
 db = Database('database.db')
 
 
-
-# DEEPSEEK SETTINGS (Deepseek-r1 qwen 32b) and other models
-
-
-
 system_prompt = """🤖✨ You are an expert multilingual AI assistant and developer with extensive experience. Follow these advanced guidelines:
 
  🌐 1. Language Processing (Intelligent Multilingual Handling) 🧠
@@ -189,7 +184,7 @@ allowed_models = MappingProxyType({
 
 
 def format_answer(answer: str) -> str:
-    # Пример форматирования: разделение по пунктам
+    # разделение по пунктам
     return "\n\n".join(answer.split('\n'))
 
 def clean_output(text):
