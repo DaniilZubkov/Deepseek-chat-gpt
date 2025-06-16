@@ -103,14 +103,29 @@ system_prompt = """🤖✨ You are an expert multilingual AI assistant and devel
 allowed_models = MappingProxyType({
     # DEEPSEEK family
     'Deepseek-R1': {
-        'code': 'deepseek-r1',
+        'img_support': False,
+        'models': [
+            {'model': 'deepseek/deepseek-r1', 'client': 'openrouter'},
+            {'model': g4f.models.deepseek_r1, 'client': 'gpt_client'}
+        ],
         'api-key': env("DEEPSEEK_API_R1"),
+        'code': 'deepseek-r1',
     },
     'Deepseek-V3': {
+        'img_support': False,
+        'models': [
+            {'model': 'deepseek/deepseek-chat-v3-0324', 'client': 'openrouter'},
+            {'model': g4f.models.deepseek_v3, 'client': 'gpt_client'}
+        ],
         'code': 'deepseek-v3',
         'api-key': env("DEEPSEEK_API_V3"),
     },
     'Deepseek-R1 (QWEN)': {
+        'img_support': False,
+        'models': [
+            {'model': 'deepseek/deepseek-r1-distill-qwen-32b', 'client': 'openrouter'},
+            {'model': g4f.models.deepseek_r1_distill_qwen_32b, 'client': 'gpt_client'}
+        ],
         'code': 'deepseek-r1-qwen',
         'api-key': env("DEEPSEEK_API_QWEN"),
     },
@@ -118,44 +133,80 @@ allowed_models = MappingProxyType({
 
    # GPT family
    'GPT-4 Turbo': {
+        'img_support': True,
+        'models': [
+            {'model': 'gpt-4-turbo', 'client': 'gpt_client'}
+        ],
         'code': 'gpt4-turbo',
         'api-key': env("GPT_4_TURBO_API"),
    },
    'GPT-4.1': {
+        'img_support': True,
+        'models': [
+            {'model': 'gpt-4.1', 'client': 'gpt_client'}
+        ],
         'code': 'gpt4.1',
         'api-key': env("GPT_4_1_API"),
    },
    'GPT-4o': {
+       'img_support': True,
+       'models': [
+            {'model': 'gpt-4o', 'client': 'gpt_client'}
+       ],
        'code': 'gpt4-o',
        'api-key': env("GPT_4_O_API"),
    },
 
    # MINI GPT`s family
    'GPT-4.1 Mini': {
+       'img_support': False,
+       'models': [
+            {'model': 'gpt-4.1-mini', 'client': 'gpt_client'}
+       ],
        'code': 'gpt4.1-mini',
        'api-key': env("GPT_4_1_MINI_API"), 
    },
    'GPT-4o Mini': {
+       'img_support': True,
+       'models': [
+            {'model': 'gpt-4o-mini', 'client': 'gpt_client'}
+       ],
        'code': 'gpt4-o-mini',
        'api-key': env("GPT_4_O_MINI_API"),
    },
 
    # CLAUDE family
    'Claude 3.7 Sonnet': {
+       'img_support': True,
+       'models': [
+            {'model': 'claude-3.7-sonnet', 'client': 'gpt_client'}
+       ],
        'code': 'claude3.7-sonnet',
        'api-key': env("CLAUDE_37_API"),
    },
    'Claude 3.7 Sonnet (thinking)': {
+       'img_support': True,
+       'models': [
+            {'model': 'clude-3.7-sonnet-thinking', 'client': 'gpt_client'}
+       ],
        'code': 'claude3.7-sonnet-thinking',
        'api-key': env("CLAUDE_37_TH_API"),
    },
 
    # Open AI family
    'OpenAI o3': {
+       'img_support': True,
+       'models': [
+            {'model': 'openai/o3', 'client': 'openrouter'}
+       ],
        'code': 'open-ai-o3',
        'api-key': env("OAI_O3"),
    },
    'Open AI o4 Mini': {
+       'img_support': True,
+       'models': [
+            {'model': g4f.models.o4_mini, 'client': 'gpt_client'}
+       ],
        'code': 'open-ai-o4-mini',
        'api-key': env("OAI_O4_MINI"),
    },
@@ -163,10 +214,20 @@ allowed_models = MappingProxyType({
 
    # QWEN family
    'Qwen3 235B A22B': {
+       'img_support': False,
+       'models': [
+            {'model': 'qwen/qwen3-235b-a22b', 'client': 'openrouter'},
+            {'model': 'qwen-3-235b', 'client': 'gpt_client'}
+       ],
        'code': 'qwen3-235B-A22B',
        'api-key': env("QWEN_3_235"),
    },
    'Qwen3 30B A3B': {
+       'img_support': False,
+       'models': [
+            {'model': 'qwen/qwen3-30b-a3b', 'client': 'openrouter'},
+            {'model': 'qwen-3-30b', 'client': 'gpt_client'}
+       ],
        'code': 'qwen3-30b-a3b',
        'api-key': env("QWEN_3_30"),
    },
@@ -175,6 +236,10 @@ allowed_models = MappingProxyType({
 
    # Gemini family
    'Gemini 2.0 Flash Lite': {
+       'img_support': True,
+       'models': [
+            {'model': g4f.models.gemini_2_0_flash_thinking, 'client': 'gpt_client'}
+       ],
        'code': 'gemini-2.0-flash-lite',
        'api-key': env("GEMINI_API"),
    },
@@ -231,6 +296,13 @@ def cleanup_image(img_path):
     else:
         return
 
+
+def get_client(client_type, api_key=None):
+    if client_type == 'openrouter':
+        return OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+    elif client_type == 'gpt_client':
+        return Client()
+    return 
 
 
 async def update_keyboard(message: Message, user_id: int):
@@ -361,7 +433,7 @@ async def handle_model_requests(message,
                 logging.warning(f"Attempt {attempt} failed: {str(e)}")
 
                 if attempt == len(all_models):
-                    await message.answer('⚠️ ***Не удалось получить ответ от модели***', parse_mode="MARKDOWN")
+                    await message.answer('⚠️ ***Не удалось получить ответ от модели, попробуйте еще раз позже...***', parse_mode="MARKDOWN")
     
         cleanup_image(img_path)
     
@@ -407,6 +479,14 @@ async def start(message: Message):
 async def get_message(message: Message):
     try:
         current_model = db.get_model(message.from_user.id)
+        
+        if not current_model:
+            raise ValueError("Model not set for user")
+
+        model_info = next((v for v in allowed_models.values() if v['code'] == current_model), None)
+
+        if not model_info:
+            raise ValueError(f"Model not found or not supported: {current_model}")
 
         img_path = None
         if message.photo:
@@ -414,189 +494,34 @@ async def get_message(message: Message):
             await download_photo(message.photo[-1].file_id, img_path)
 
 
-        new_api = ''
-        model_title = ''
-        for model, api in allowed_models.items():
-            if api['code'] == current_model:
-                new_api = api['api-key']
-                model_title = model
-                break
+        clients = []
+        for model_conf in model_info['models']:
+            client_type = model_conf['client']
+            if client_type == 'openrouter':
+                clients.append({
+                    'model': model_conf['model'],
+                    'client': get_client(client_type, model_info['api-key'])
+                })
+            else:
+                clients.append({
+                    'model': model_conf['model'],
+                    'client': get_client(client_type)
+                })
 
-        if not new_api or not current_model:
-            raise ValueError(f"API key not found for model: {current_model}")
+        model_title = next((k for k, v in allowed_models.items() if v['code'] == current_model), current_model)
+        
+        await handle_model_requests(
+            message=message,
+            img_support=model_info['img_support'],
+            img_path=img_path,
+            all_models=clients,
+            model_title=model_title,
+            system_prompt=system_prompt
+        )
 
-
-        client = OpenAI(api_key=f"{new_api}", base_url="https://openrouter.ai/api/v1")
-        gpt_client = Client()
-
-
-        # DEEPSEEK FAMILY
-        # DEEPSEEK R1 requests
-        if current_model == 'deepseek-r1':
-            await handle_model_requests(message,
-                                        img_support=False,
-                                        img_path=img_path,
-                                        all_models=[
-                                        {'model': 'deepseek/deepseek-r1', 'client': client},
-                                        {'model': g4f.models.deepseek_r1, 'client': gpt_client}
-                                        ],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-
-
-
-
-        # DEEPSEEK V3
-        if current_model == 'deepseek-v3':
-            await handle_model_requests(message,
-                                        img_support=False,
-                                        img_path=img_path,
-                                        all_models=[
-                                        {'model': 'deepseek/deepseek-chat-v3-0324', 'client': client},
-                                        {'model': g4f.models.deepseek_v3, 'client': gpt_client}
-                                        ],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-        # DEEPSEK r1 (qwen)
-        if current_model == 'deepseek-r1-qwen':
-            await handle_model_requests(message,
-                                        img_support=False,
-                                        img_path=img_path,
-                                        all_models=[
-                                        {'model': 'deepseek/deepseek-r1-distill-qwen-32b', 'client': client},
-                                        {'model': g4f.models.deepseek_r1_distill_qwen_32b, 'client': gpt_client}
-                                        ],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-        # GPT 4 turbo
-        if current_model == 'gpt4-turbo':
-            await handle_model_requests(message,
-                                        img_support=True,
-                                        img_path=img_path,
-                                        all_models=[{'model': 'gpt-4-turbo', 'client': gpt_client}],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-        # GPT 4.1
-        if current_model == 'gpt4.1':     
-            await handle_model_requests(message,
-                                        img_support=True,
-                                        img_path=img_path,
-                                        all_models=[{'model': 'gpt-4.1', 'client': gpt_client}],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-        # GPT 4o
-        if current_model == 'gpt4-o':
-            await handle_model_requests(message,
-                                        img_support=True,
-                                        img_path=img_path,
-                                        all_models=[{'model': 'gpt-4o', 'client': gpt_client}],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-        # GPT 4.1 mini
-        if current_model == 'gpt4.1-mini':
-            await handle_model_requests(message,
-                                        img_support=False,
-                                        img_path=img_path,
-                                        all_models=[{'model': 'gpt-4.1-mini', 'client': gpt_client}],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-        # GPT 4o MINI
-        if current_model == 'gpt4-o-mini':
-            await handle_model_requests(message,
-                                        img_support=True,
-                                        img_path=img_path,
-                                        all_models=[{'model': 'gpt-4o-mini', 'client': gpt_client}],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-
-        # CLAUDE family
-        # CLAUDE 3.7 sonnet
-        if current_model == 'claude3.7-sonnet':
-            await handle_model_requests(message,
-                                        img_support=True,
-                                        img_path=img_path,
-                                        all_models=[{'model': 'claude-3.7-sonnet', 'client': gpt_client}],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-
-        # CLAUDE 3.7 sonnet (thinking)
-        if current_model == 'claude3.7-sonnet-thinking':
-            await handle_model_requests(message,
-                                        img_support=True,
-                                        img_path=img_path,
-                                        all_models=[{'model': 'claude-3.7-sonnet-thinking', 'client': gpt_client}],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-        # OPEN AI FAMILY (o3)
-        if current_model == 'open-ai-o3':
-            await handle_model_requests(message,
-                                        img_support=True,
-                                        img_path=img_path,
-                                        all_models=[{'model': 'openai/o3', 'client': client}],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-        # OPEN AI O4 mini
-        if current_model == 'open-ai-o4-mini':
-            await handle_model_requests(message,
-                                        img_support=True,
-                                        img_path=img_path,
-                                        all_models=[{'model': g4f.models.o4_mini, 'client': gpt_client}],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-
-        # QWEN FAMILY (235)
-        if current_model == 'qwen3-235B-A22B':
-            await handle_model_requests(message,
-                                        img_support=False,
-                                        img_path=img_path,
-                                        all_models=[
-                                        {'model': 'qwen-3-235b', 'client': gpt_client},
-                                        {'model': 'qwen/qwen3-235b-a22b', 'client': client}
-                                        ],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-        # QWEN 30b
-        if current_model == 'qwen3-30b-a3b':
-            await handle_model_requests(message,
-                                        img_support=False,
-                                        img_path=img_path,
-                                        all_models=[
-                                        {'model': 'qwen-3-30b', 'client': gpt_client},
-                                        {'model': 'qwen/qwen3-30b-a3b', 'client': client}
-                                        ],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-
-        # GEMINI FAMILY (2.0 flash lite)
-        if current_model == 'gemini-2.0-flash-lite':
-            await handle_model_requests(message,
-                                        img_support=True,
-                                        img_path=img_path,
-                                        all_models=[
-                                        {'model': g4f.models.gemini_2_0_flash_thinking, 'client': gpt_client}
-                                        ],
-                                        model_title=model_title,
-                                        system_prompt=system_prompt)
-
-
-
+        return
 
     except Exception as e:
-        print(e)
         await message.answer('❌ ***Произошла ошибка генерации ответа или модель не работает...***', parse_mode='MARKDOWN')
         return
 
