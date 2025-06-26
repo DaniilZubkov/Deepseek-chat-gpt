@@ -81,7 +81,7 @@ allowed_models = MappingProxyType({
     'Deepseek-R1': {
         'img_support': False,
         'models': [
-            # {'model': 'deepseek/deepseek-r1', 'client': 'openrouter'},
+            {'model': 'deepseek/deepseek-r1', 'client': 'openrouter'},
             {'model': g4f.models.deepseek_r1, 'client': 'gpt_client'}
         ],
         'api-key': env("DEEPSEEK_API_R1"),
@@ -90,7 +90,7 @@ allowed_models = MappingProxyType({
     'Deepseek-V3': {
         'img_support': False,
         'models': [
-            # {'model': 'deepseek/deepseek-chat-v3-0324', 'client': 'openrouter'},
+            {'model': 'deepseek/deepseek-chat-v3-0324', 'client': 'openrouter'},
             {'model': g4f.models.deepseek_v3, 'client': 'gpt_client'}
         ],
         'code': 'deepseek-v3',
@@ -99,7 +99,7 @@ allowed_models = MappingProxyType({
     'Deepseek-R1 (QWEN)': {
         'img_support': False,
         'models': [
-            # {'model': 'deepseek/deepseek-r1-distill-qwen-32b', 'client': 'openrouter'},
+            {'model': 'deepseek/deepseek-r1-distill-qwen-32b', 'client': 'openrouter'},
             {'model': g4f.models.deepseek_r1_distill_qwen_32b, 'client': 'gpt_client'}
         ],
         'code': 'deepseek-r1-qwen',
@@ -192,7 +192,7 @@ allowed_models = MappingProxyType({
    'Qwen3 235B A22B': {
        'img_support': False,
        'models': [
-            # {'model': 'qwen/qwen3-235b-a22b', 'client': 'openrouter'},
+            {'model': 'qwen/qwen3-235b-a22b', 'client': 'openrouter'},
             {'model': 'qwen-3-235b', 'client': 'gpt_client'}
        ],
        'code': 'qwen3-235B-A22B',
@@ -201,7 +201,7 @@ allowed_models = MappingProxyType({
    'Qwen3 30B A3B': {
        'img_support': False,
        'models': [
-            # {'model': 'qwen/qwen3-30b-a3b', 'client': 'openrouter'},
+            {'model': 'qwen/qwen3-30b-a3b', 'client': 'openrouter'},
             {'model': 'qwen-3-30b', 'client': 'gpt_client'}
        ],
        'code': 'qwen3-30b-a3b',
@@ -220,3 +220,21 @@ allowed_models = MappingProxyType({
        'api-key': env("GEMINI_API"),
    },
 })
+
+
+
+
+img_generation_models = {
+    'FLUX': {
+        'models': [
+            {'model': 'flux', 'client': 'gpt_client'}
+        ],
+        'versions': [
+            {'model': 'FLUX 1.1 [ultra]', 'code': 'flux-11-ultra'},
+            {'model': 'FLUX 1.1 dev', 'code': 'flux-11-dev'},
+
+        ],
+        'category-code': 'flux',
+        'api-key': 'asdasdasd',
+    },
+}

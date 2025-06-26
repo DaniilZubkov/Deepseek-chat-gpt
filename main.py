@@ -5,7 +5,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Message, FSInputFile, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from aiogram.enums import ParseMode
-
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
 
 from keyboards import main_keyboard
 from types import MappingProxyType
@@ -26,7 +27,7 @@ import logging
 from functools import lru_cache
 import time
 
-from config import allowed_models, system_prompt
+from config import allowed_models, system_prompt, img_generation_models
 from funcs import format_answer, clean_output, download_photo, clean_markdown, encode_img, cleanup_image, get_client, update_keyboard, \
 send_long_message
 from ai.model_funcs import create_response, _prepare_messages
@@ -41,6 +42,13 @@ dp = Dispatcher(storage=MemoryStorage())
 db = Database('database.db')
 
 router = Router()
+
+
+
+class ModelSelection(StatesGroup):
+    choosing_model = State()
+    choosing_version = State()
+
 
 
 
@@ -229,31 +237,25 @@ async def get_message(message: Message):
 
 
 
-
-
-
-
-
-@router.callback_query(lambda F: True)
-async def change_model(callback_query: CallbackQuery):
+# СМЕНА ТЕКСТОВОЙ МОДЕЛИ
+@router.callback_query(F.data == 'change_model')
+async def change_txt_model(callback_query: CallbackQuery):
     black_photo_path = 'fotos/black_img.jpg'
 
     try:
-        if callback_query.data == 'change_model':
-            builder = InlineKeyboardBuilder()
-            cur_model = db.get_model(callback_query.from_user.id)
+        builder = InlineKeyboardBuilder()
+        cur_model = db.get_model(callback_query.from_user.id)
 
 
-            for model_name, model_data in allowed_models.items():
-                if model_data['code'] == cur_model:
-                    builder.button(text=f"✅ {model_name}", callback_data=f"model_{model_data['code']}")
-                else:
-                    builder.button(text=model_name, callback_data=f"model_{model_data['code']}")
+        for model_name, model_data in allowed_models.items():
+            if model_data['code'] == cur_model:
+                builder.button(text=f"✅ {model_name}", callback_data=f"model_{model_data['code']}")
+            else:
+                builder.button(text=model_name, callback_data=f"model_{model_data['code']}")
 
+        builder.adjust(3, 1, 1, 1, 1, 1, 2, 2, 2)
 
-            builder.adjust(3, 1, 1, 1, 1, 1, 2, 2, 2)
-
-            await callback_query.message.answer(f'В разделе есть модели такие как <b>ChatGPT, Claude, Gemini, Deepseek и многие другие</b>:\n\n'
+        await callback_query.message.answer(f'В разделе есть модели такие как <b>ChatGPT, Claude, Gemini, Deepseek и многие другие</b>:\n\n'
                                                f'<b>🐼 Deepseepk-R1</b> - Модель для сложных задач с глубоким рассуждением\n'
                                                f'<b>🐳 Deepseek-V3</b> - Китайская текстовая модель, созданая Ляном Вэньфэном\n'
                                                f'<b>⚡ Deepseek-QWEN</b> - Deepseek на базе китайской модели QWEN\n\n'
@@ -269,17 +271,109 @@ async def change_model(callback_query: CallbackQuery):
                                                f'<b>🤖 Qwen3 30B A3B</b> – Более компактная, но эффективная версия Qwen3, подходит для баланса скорости и качества.\n\n'
                                                f'<b>💡 Gemini 2.0 Flash Lite</b> – Облегчённая и быстрая версия Gemini 2.0, оптимизирована для оперативных запросов.',
                                        parse_mode="html", reply_markup=builder.as_markup())
+    except Exception as e:
+        print(e)
 
 
-        if callback_query.data.startswith('model_'):
-            new_model = callback_query.data.replace('model_', '')
-            db.set_model(callback_query.from_user.id, new_model)
 
-            await update_keyboard(callback_query.message, callback_query.from_user.id)
 
+@router.callback_query(F.data.startswith('model_'))
+async def choose_txt_model(callback_query: CallbackQuery):
+    try:
+        new_model = callback_query.data.replace('model_', '')
+        db.set_model(callback_query.from_user.id, new_model)
+
+        await update_keyboard(callback_query.message, callback_query.from_user.id)
+    
+    except Exception as e:
+        print(e)
+
+
+
+
+
+
+
+
+
+
+
+
+# IMG GENERATION MODELS
+@router.callback_query(F.data == 'change_model_photo_categ')
+async def change_img_model(callback_query: CallbackQuery):
+    try:
+        builder = InlineKeyboardBuilder()
+        for model_name in img_generation_models.keys():
+            builder.button(text=model_name, callback_data=f'img_selected_model_{model_name}')
+
+        builder.adjust(1)
+
+        await callback_query.message.answer('asdadsadsada', parse_mode='MARKDOWN', reply_markup=builder.as_markup())
+    except Exception as e:
+        pass
+
+
+@router.callback_query(F.data.startswith('img_selected_model_'))
+async def change_img_model_version(callback_query: CallbackQuery):
+    try:
+        model_name = callback_query.data.split("_")[-1]
+        print(model_name)
+    
+        if model_name not in img_generation_models:
+            await callback_query.message.answer("❌ Модель не найдена!", parse_mode='MARKDOWN')
+            return
+    
+        versions = img_generation_models[model_name]['versions']
+        builder = InlineKeyboardBuilder()
+
+        for version in versions:
+            builder.button(text=version['model'], callback_data=f"select_img_version_{version['code']}")
+
+        builder.adjust(1)
+    
+        await callback_query.message.edit_text(
+            f"⚙️ Доступные версии {model_name}:",
+            reply_markup=builder.as_markup()
+        )
+    except Exception as e:
+        pass
+
+
+@router.callback_query(F.data.startswith('select_img_version_'))
+async def select_img_model(callback_query: CallbackQuery):
+    try:
+        version_code = callback_query.data.split("_")[-1]
+        db.set_model_img(callback_query.from_user.id, version_code)
+
+        model_name = None
+        for m_name, m_data in img_generation_models.items():
+            if any(v['code'] == version_code for v in m_data['versions']):
+                model_name = m_name
+                break
+
+        if model_name:
+            versions = img_generation_models[model_name]['versions']
+            builder = InlineKeyboardBuilder()
+            
+            for version in versions:
+                if version['code'] == version_code:
+                    builder.button(text=f"✅ {version['model']}", callback_data=f"select_img_version_{version['code']}")
+                else:
+                    builder.button(text=version['model'], callback_data=f"select_img_version_{version['code']}")
+            
+            builder.adjust(1)
+
+            await callback_query.message.edit_text(
+                f"⚙️ Доступные версии {model_name}:",
+                reply_markup=builder.as_markup()
+            )
 
     except Exception as e:
         print(e)
+
+
+
 
 
 

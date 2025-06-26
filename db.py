@@ -18,7 +18,9 @@ class Database:
         user_id INTEGER NOT NULL,
         nickname TEXT,
         signup VARCHAR(60) DEFAULT 'setnickname',
-        model TEXT DEFAULT 'deepseek-r1'
+        model TEXT DEFAULT 'deepseek-r1',
+        img_model TEXT DEFAULT 'flux-11-dev',
+        permission TEXT DEFAULT '1:1'
         )""")
 
     def add_user(self, user_id):
@@ -63,6 +65,20 @@ class Database:
     def get_model(self, user_id):
         with self.connection:
             result = self.cursor.execute("SELECT model FROM users WHERE user_id=?", (user_id,)).fetchall()
+            for row in result:
+                model = str(row[0])
+            return model
+
+
+    # IMG MODELS
+    def set_model_img(self, user_id, model):
+        with self.connection:
+            return self.cursor.execute("UPDATE users SET img_model=? WHERE user_id=?", (model, user_id,))
+
+
+    def get_img_model(self, user_id):
+        with self.connection:
+            result = self.cursor.execute("SELECT img_model FROM users WHERE user_id=?", (user_id,)).fetchall()
             for row in result:
                 model = str(row[0])
             return model

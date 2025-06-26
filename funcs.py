@@ -112,6 +112,7 @@ async def update_keyboard(message: Message, user_id: int):
     builder.adjust(3, 1, 1, 1, 1, 1, 2, 2, 2)
     await message.edit_reply_markup(reply_markup=builder.as_markup())
 
+ 
 
 
 async def send_long_message(text, message):
