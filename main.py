@@ -29,7 +29,7 @@ import time
 
 from config import allowed_models, system_prompt, img_generation_models
 from funcs import format_answer, clean_output, download_photo, clean_markdown, encode_img, cleanup_image, get_client, update_keyboard, \
-send_long_message
+send_long_message, update_img_keyboard
 from ai.model_funcs import create_response, _prepare_messages
 
 
@@ -318,24 +318,22 @@ async def change_img_model(callback_query: CallbackQuery):
 async def change_img_model_version(callback_query: CallbackQuery):
     try:
         model_name = callback_query.data.split("_")[-1]
-        print(model_name)
     
         if model_name not in img_generation_models:
-            await callback_query.message.answer("❌ Модель не найдена!", parse_mode='MARKDOWN')
+            await callback_query.message.answer("❌ ***Модель не найдена!***", parse_mode='MARKDOWN')
             return
     
         versions = img_generation_models[model_name]['versions']
         builder = InlineKeyboardBuilder()
 
+        model_code = None
         for version in versions:
+            model_code = version['code']
             builder.button(text=version['model'], callback_data=f"select_img_version_{version['code']}")
 
         builder.adjust(1)
     
-        await callback_query.message.edit_text(
-            f"⚙️ Доступные версии {model_name}:",
-            reply_markup=builder.as_markup()
-        )
+        await update_img_keyboard(callback_query.message, callback_query.from_user.id, model_code)
     except Exception as e:
         pass
 
@@ -353,21 +351,7 @@ async def select_img_model(callback_query: CallbackQuery):
                 break
 
         if model_name:
-            versions = img_generation_models[model_name]['versions']
-            builder = InlineKeyboardBuilder()
-            
-            for version in versions:
-                if version['code'] == version_code:
-                    builder.button(text=f"✅ {version['model']}", callback_data=f"select_img_version_{version['code']}")
-                else:
-                    builder.button(text=version['model'], callback_data=f"select_img_version_{version['code']}")
-            
-            builder.adjust(1)
-
-            await callback_query.message.edit_text(
-                f"⚙️ Доступные версии {model_name}:",
-                reply_markup=builder.as_markup()
-            )
+            await update_img_keyboard(callback_query.message, callback_query.from_user.id, version_code)
 
     except Exception as e:
         print(e)

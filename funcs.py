@@ -1,4 +1,3 @@
-
 import os
 import re
 import base64
@@ -18,7 +17,7 @@ from PIL import Image
 import io
 from g4f.Provider import RetryProvider, OpenaiChat
 
-from config import allowed_models
+from config import allowed_models, img_generation_models
 
 
 
@@ -113,6 +112,28 @@ async def update_keyboard(message: Message, user_id: int):
     await message.edit_reply_markup(reply_markup=builder.as_markup())
 
  
+
+async def update_img_keyboard(message: Message, user_id: int, version_code: str):
+    cur_model = db.get_img_model(user_id)
+    builder = InlineKeyboardBuilder()
+
+    model_name = None
+    for m_name, m_data in img_generation_models.items():
+        if any(v['code'] == version_code for v in m_data['versions']):
+            model_name = m_name
+            break
+
+    if model_name:
+        versions = img_generation_models[model_name]['versions']
+
+        for version in versions:
+            if version['code'] == version_code:
+                builder.button(text=f"✅ {version['model']}", callback_data=f"select_img_version_{version['code']}")
+            else:
+                builder.button(text=version['model'], callback_data=f"select_img_version_{version['code']}")
+
+    builder.adjust(1)
+    await message.edit_reply_markup(reply_markup=builder.as_markup())
 
 
 async def send_long_message(text, message):

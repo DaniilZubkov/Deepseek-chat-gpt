@@ -234,6 +234,10 @@ img_generation_models = {
             {'model': 'FLUX 1.1 dev', 'code': 'flux-11-dev'},
 
         ],
+        'permissions': [
+            {'code': '1:1'},
+            {'code': '2:1'}
+        ]
         'category-code': 'flux',
         'api-key': 'asdasdasd',
     },
