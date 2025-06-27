@@ -178,7 +178,7 @@ async def start(message: Message):
                                    parse_mode="MARKDOWN", reply_markup=main_keyboard())
 
     except Exception as e:
-        print(e)
+        pass
 
 
 
@@ -231,7 +231,6 @@ async def get_message(message: Message):
         return
 
     except Exception as e:
-        print(e)
         await message.answer('❌ ***Произошла ошибка генерации ответа или модель не работает...***', parse_mode='MARKDOWN')
         return
 
@@ -272,7 +271,7 @@ async def change_txt_model(callback_query: CallbackQuery):
                                                f'<b>💡 Gemini 2.0 Flash Lite</b> – Облегчённая и быстрая версия Gemini 2.0, оптимизирована для оперативных запросов.',
                                        parse_mode="html", reply_markup=builder.as_markup())
     except Exception as e:
-        print(e)
+        pass
 
 
 
@@ -286,7 +285,7 @@ async def choose_txt_model(callback_query: CallbackQuery):
         await update_keyboard(callback_query.message, callback_query.from_user.id)
     
     except Exception as e:
-        print(e)
+        pass
 
 
 
@@ -318,22 +317,20 @@ async def change_img_model(callback_query: CallbackQuery):
 async def change_img_model_version(callback_query: CallbackQuery):
     try:
         model_name = callback_query.data.split("_")[-1]
-    
+
         if model_name not in img_generation_models:
-            await callback_query.message.answer("❌ ***Модель не найдена!***", parse_mode='MARKDOWN')
+            await callback_query.answer("❌ Модель не найдена!")
             return
-    
-        versions = img_generation_models[model_name]['versions']
-        builder = InlineKeyboardBuilder()
 
-        model_code = None
-        for version in versions:
-            model_code = version['code']
-            builder.button(text=version['model'], callback_data=f"select_img_version_{version['code']}")
+        version_code = db.get_img_model(callback_query.from_user.id)
+        permission_code = db.get_model_img_permission(callback_query.from_user.id)
 
-        builder.adjust(1)
-    
-        await update_img_keyboard(callback_query.message, callback_query.from_user.id, model_code)
+        await update_img_keyboard(
+            callback_query.message,
+            callback_query.from_user.id,
+            version_code,
+            permission_code
+        ) 
     except Exception as e:
         pass
 
@@ -342,6 +339,8 @@ async def change_img_model_version(callback_query: CallbackQuery):
 async def select_img_model(callback_query: CallbackQuery):
     try:
         version_code = callback_query.data.split("_")[-1]
+        permission_code = db.get_model_img_permission(callback_query.from_user.id)
+
         db.set_model_img(callback_query.from_user.id, version_code)
 
         model_name = None
@@ -351,10 +350,22 @@ async def select_img_model(callback_query: CallbackQuery):
                 break
 
         if model_name:
-            await update_img_keyboard(callback_query.message, callback_query.from_user.id, version_code)
-
+            await update_img_keyboard(callback_query.message, callback_query.from_user.id, version_code, permission_code)
     except Exception as e:
-        print(e)
+        pass
+
+
+@router.callback_query(F.data.startswith('selected_img_permission_'))
+async def select_img_permission(callback_query: CallbackQuery):
+    try:
+        permission_code = callback_query.data.split("_")[-1]
+        version_code = db.get_img_model(callback_query.from_user.id)
+        
+        db.set_model_permission_img(callback_query.from_user.id, permission_code)
+
+        await update_img_keyboard(callback_query.message, callback_query.from_user.id, version_code, permission_code)
+    except Exception as e:
+        pass
 
 
 

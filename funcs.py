@@ -113,8 +113,10 @@ async def update_keyboard(message: Message, user_id: int):
 
  
 
-async def update_img_keyboard(message: Message, user_id: int, version_code: str):
-    cur_model = db.get_img_model(user_id)
+async def update_img_keyboard(message: Message,
+                              user_id: int,
+                              version_code: str,
+                              permission_code: str | None=None):
     builder = InlineKeyboardBuilder()
 
     model_name = None
@@ -125,15 +127,27 @@ async def update_img_keyboard(message: Message, user_id: int, version_code: str)
 
     if model_name:
         versions = img_generation_models[model_name]['versions']
-
         for version in versions:
             if version['code'] == version_code:
-                builder.button(text=f"✅ {version['model']}", callback_data=f"select_img_version_{version['code']}")
+                builder.button(text=f"✅ {version['model']}", 
+                             callback_data=f"select_img_version_{version['code']}")
             else:
-                builder.button(text=version['model'], callback_data=f"select_img_version_{version['code']}")
+                builder.button(text=version['model'], 
+                             callback_data=f"select_img_version_{version['code']}")
 
-    builder.adjust(1)
-    await message.edit_reply_markup(reply_markup=builder.as_markup())
+        if 'permissions' in img_generation_models[model_name]:
+            permissions = img_generation_models[model_name]['permissions']
+            for per in permissions:
+                if permission_code and per['code'] == permission_code:
+                    builder.button(text=f'✅ {per["code"]}', 
+                                 callback_data=f'selected_img_permission_{per["code"]}')
+                else:
+                    builder.button(text=per['code'], 
+                                 callback_data=f'selected_img_permission_{per["code"]}')
+
+        builder.adjust(1)
+        await message.edit_reply_markup(reply_markup=builder.as_markup())
+
 
 
 async def send_long_message(text, message):

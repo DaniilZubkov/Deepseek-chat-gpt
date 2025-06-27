@@ -20,7 +20,7 @@ class Database:
         signup VARCHAR(60) DEFAULT 'setnickname',
         model TEXT DEFAULT 'deepseek-r1',
         img_model TEXT DEFAULT 'flux-11-dev',
-        permission TEXT DEFAULT '1:1'
+        img_permission TEXT DEFAULT '1:1'
         )""")
 
     def add_user(self, user_id):
@@ -82,3 +82,16 @@ class Database:
             for row in result:
                 model = str(row[0])
             return model
+
+
+
+    def set_model_permission_img(self, user_id, permission):
+        with self.connection:
+            return self.cursor.execute("UPDATE users SET img_permission=? WHERE user_id=?", (permission, user_id,))
+
+    def get_model_img_permission(self, user_id):
+        with self.connection:
+            result = self.cursor.execute("SELECT img_permission FROM users WHERE user_id=?", (user_id,)).fetchall()
+            for row in result:
+                permission = str(row[0])
+            return permission
